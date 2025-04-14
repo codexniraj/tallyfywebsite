@@ -7,7 +7,7 @@ export default  {
     {
       path: '/',
       name: 'index',
-      redirect: '/dashboard',
+      redirect: '/login',
     },
   ],
 }

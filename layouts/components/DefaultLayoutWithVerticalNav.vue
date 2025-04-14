@@ -1,4 +1,5 @@
 <script setup>
+import { useUserCompanies } from '@/composables/useUserCompanies'
 import Footer from '@/layouts/components/Footer.vue'
 import NavbarThemeSwitcher from '@/layouts/components/NavbarThemeSwitcher.vue'
 import NavItems from '@/layouts/components/NavItems.vue'
@@ -7,11 +8,17 @@ import logo from '@images/logo.svg?raw'
 import VerticalNavLayout from '@layouts/components/VerticalNavLayout.vue'
 import { ref } from 'vue'
 
+const { companies } = useUserCompanies()
+
+
 const isSidebarVisible = ref(true)
 
 const toggleSidebar = () => {
   isSidebarVisible.value = !isSidebarVisible.value
 }
+
+// Companies dropdown data
+const selectedCompany = ref(null)
 </script>
 
 <template>
@@ -33,25 +40,36 @@ const toggleSidebar = () => {
           style="user-select: none;"
         >
           <!-- 👉 Search Trigger button -->
-          <IconBtn>
+          <!--
+            <IconBtn>
             <VIcon icon="bx-search" />
-          </IconBtn>
+            </IconBtn>
 
-          <span class="d-none d-md-flex align-center text-disabled ms-2">
+            <span class="d-none d-md-flex align-center text-disabled ms-2">
             <span class="me-2">Search</span>
             <span class="meta-key">&#8984;K</span>
-          </span>
+            </span> 
+          -->
         </div>
 
         <VSpacer />
 
-        <IconBtn
-          href="https://github.com/themeselection/sneat-vuetify-nuxtjs-admin-template-free"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <VIcon icon="bxl-github" />
-        </IconBtn>
+        <!-- 👉 Company Selector -->
+        <VSelect
+          v-model="selectedCompany"
+          class="company-selector me-4"
+          label="Company"
+          density="compact"
+          variant="outlined"
+          hide-details
+          :items="companies"
+          item-title="company_name"
+          item-value="company_id"
+          return-object
+          style="max-inline-size: 200px;"
+          :menu-props="{ maxHeight: 200 }"
+        />
+
 
         <IconBtn>
           <VIcon icon="bx-bell" />
@@ -123,5 +141,9 @@ const toggleSidebar = () => {
     line-height: 1.75rem;
     text-transform: uppercase;
   }
+}
+
+.company-selector {
+  flex-basis: 200px;
 }
 </style>

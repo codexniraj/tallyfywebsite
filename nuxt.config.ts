@@ -1,6 +1,6 @@
-import svgLoader from 'vite-svg-loader'
-import vuetify from 'vite-plugin-vuetify'
 import { fileURLToPath } from 'node:url'
+import vuetify from 'vite-plugin-vuetify'
+import svgLoader from 'vite-svg-loader'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -82,7 +82,7 @@ export default defineNuxtConfig({
   },
 
   vite: {
-    define: { 'process.env': {} },
+    define: { 'process.env': {}, global: 'globalThis' },
 
     resolve: {
       alias: {
