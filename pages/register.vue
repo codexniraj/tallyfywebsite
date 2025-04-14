@@ -1,6 +1,5 @@
 <script setup>
 import AuthProvider from '@/views/pages/authentication/AuthProvider.vue'
-import logo from '@images/logo.svg?raw'
 import authV1BottomShape from '@images/svg/auth-v1-bottom-shape.svg?url'
 import authV1TopShape from '@images/svg/auth-v1-top-shape.svg?url'
 
@@ -45,10 +44,15 @@ definePageMeta({ layout: 'blank' })
             <!-- eslint-disable vue/no-v-html -->
             <div
               class="d-flex"
-              v-html="logo"
-            />
+            >
+              <img
+                src="/favicon.ico"
+                alt="Logo"
+                style=" block-size: 24px;inline-size: 24px;"
+              >
+            </div>
             <h1 class="app-logo-title">
-              sneat
+              TallyFy.AI
             </h1>
           </NuxtLink>
         </VCardItem>
