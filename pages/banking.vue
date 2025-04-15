@@ -189,19 +189,60 @@ const selectedFile = ref(null)
 const error = ref(null)
 const uploading = ref(false)
 
-// First add the bank options ref
-const banks = ref([
-  { title: 'HDFC Bank', value: 'hdfc' },
-  { title: 'SBI Bank', value: 'sbi' },
-  { title: 'ICICI Bank', value: 'icici' },
-  { title: 'Axis Bank', value: 'axis' },
-  { title: 'Kotak Mahindra Bank', value: 'kotak' },
-  { title: 'Yes Bank', value: 'yes' },
-  { title: 'Bank of Baroda', value: 'bob' },
-  { title: 'Punjab National Bank', value: 'pnb' },
-  { title: 'IDBI Bank', value: 'idbi' },
-  { title: 'Canara Bank', value: 'canara' },
-])
+// Replace the static banks with a fetch from API
+const banks = ref([])
+
+// Add loading state for bank names fetch
+const loadingBanks = ref(false)
+
+// Update fetch bank names function with loading state
+const fetchBankNames = async () => {
+  try {
+    if (!selectedCompany.value?.company_id) return
+    
+    loadingBanks.value = true
+
+    const companyId = selectedCompany.value.company_id
+    
+    const response = await fetch(`http://3.108.64.167:3001/api/getBankNames?company=${encodeURIComponent(companyId)}`)
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch bank names')
+    }
+    
+    const data = await response.json()
+    
+    // Transform API response format to match our dropdown format
+    if (data && Array.isArray(data.bank_names)) {
+      banks.value = data.bank_names.map(bankName => ({
+        title: `${bankName} Bank`,
+        value: bankName.toLowerCase(),
+      }))
+    }
+    
+    console.log('Fetched bank names:', banks.value)
+  } catch (error) {
+    console.error('Error fetching bank names:', error)
+
+    // Fallback to empty array if API fails
+    banks.value = []
+  } finally {
+    loadingBanks.value = false
+  }
+}
+
+// Fetch bank names when component mounts and when company changes
+onMounted(() => {
+  fetchBankNames()
+})
+
+// Watch for company changes to update bank names
+watch(selectedCompany, () => {
+  fetchBankNames()
+
+  // Reset selected bank when company changes
+  selectedBank.value = null
+}, { deep: true })
 
 // Add bank selection state
 const selectedBank = ref(null)
@@ -214,11 +255,17 @@ const uploadApiUrl = computed(() => {
 })
 
 // Update the extra data to include the selected bank
-const uploadExtraData = computed(() => ({
-  email: userEmail.value,
-  company: selectedCompany.value?.company_id || '',
-  bank: selectedBank.value || '',
-}))
+const uploadExtraData = computed(() => {
+  // Find the selected bank object to use the original bank name
+  const selectedBankObj = banks.value.find(bank => bank.value === selectedBank.value)
+  const bankName = selectedBankObj?.title?.replace(' Bank', '') || ''
+  
+  return {
+    email: userEmail.value,
+    company: selectedCompany.value?.company_id || '',
+    bank: bankName, // Use the original bank name without "Bank" suffix
+  }
+})
 
 // Handle successful upload
 const handleUploadSuccess = data => {
@@ -421,12 +468,13 @@ const errorMessage = ref('')
       :upload-api="uploadApiUrl"
       :extra-data="uploadExtraData"
       :required-fields="['Date', 'Description', 'Debit', 'Credit', 'Balance']"
+      accepted-formats=".xls,.xlsx,.pdf"
       @upload-success="handleUploadSuccess"
     >
       <template #bank-selection>
         <div class="bank-selection-slot-content">
           <h3 class="text-subtitle-1 font-weight-medium mb-2">
-            Select Bank
+            Select Bank <span class="text-error">*</span>
           </h3>
           <VSelect
             v-model="selectedBank"
@@ -435,10 +483,25 @@ const errorMessage = ref('')
             placeholder="Select a bank"
             variant="outlined"
             color="primary"
-            class="mb-4"
+            class="mb-2"
+            :loading="loadingBanks"
+            :disabled="loadingBanks || banks.length === 0"
             :rules="[v => !!v || 'Bank selection is required']"
+            :hint="banks.length === 0 && !loadingBanks ? 'No banks available for this company' : ''"
+            persistent-hint
             required
           />
+          <div
+            v-if="!selectedBank"
+            class="text-caption text-error mb-4"
+          >
+            <VIcon
+              icon="bx-error-circle"
+              size="14"
+              class="me-1"
+            />
+            You must select a bank before uploading a statement
+          </div>
         </div>
       </template>
     </FileUploadDialog>
