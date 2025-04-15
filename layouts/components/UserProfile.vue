@@ -1,5 +1,8 @@
 <script setup>
+import { useAuthStore } from '@/auth'
 import avatar1 from '@images/avatars/avatar-1.png'
+
+const authStore = useAuthStore()
 </script>
 
 <template>
@@ -48,9 +51,9 @@ import avatar1 from '@images/avatars/avatar-1.png'
             </template>
 
             <VListItemTitle class="font-weight-semibold">
-              John Doe
+              {{ authStore.userName }}
             </VListItemTitle>
-            <VListItemSubtitle>Admin</VListItemSubtitle>
+            <VListItemSubtitle>{{ authStore.userGroup }}</VListItemSubtitle>
           </VListItem>
           <VDivider class="my-2" />
 

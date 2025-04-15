@@ -82,7 +82,7 @@ export default defineNuxtConfig({
   },
 
   vite: {
-    define: { 'process.env': {} },
+    define: { 'process.env': {}, global: 'globalThis' },
 
     resolve: {
       alias: {

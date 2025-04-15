@@ -14,26 +14,24 @@ const isOpen = ref(false)
     class="nav-group"
     :class="isOpen && 'open'"
   >
-    <div
-      class="nav-group-label"
-      @click="isOpen = !isOpen"
-    >
-      <VIcon
-        :icon="item.icon || 'bxs-circle'"
-        class="nav-item-icon"
-      />
-      <span class="nav-item-title">{{ item.title }}</span>
-      <span
-        class="nav-item-badge"
-        :class="item.badgeClass"
-      >
-        {{ item.badgeContent }}
-      </span>
-      <VIcon
-        icon="bx-chevron-right"
-        class="nav-group-arrow"
-      />
-    </div>
+  <div class="nav-group-label" @click="isOpen = !isOpen">
+  <VIcon
+    :icon="item.icon || 'bxs-circle'"
+    class="nav-item-icon"
+  />
+  <span class="nav-item-title">{{ item.title }}</span>
+  <span
+    class="nav-item-badge"
+    :class="item.badgeClass"
+  >
+    {{ item.badgeContent }}
+  </span>
+  <VIcon
+    :icon="isOpen ? 'bx-chevron-down' : 'bx-chevron-right'"
+    class="nav-group-arrow"
+  />
+  </div>
+
     <div class="nav-group-children-wrapper">
       <ul class="nav-group-children">
         <slot />

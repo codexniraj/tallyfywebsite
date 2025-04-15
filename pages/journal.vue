@@ -1,3 +1,150 @@
+<template>
+  <div>
+    <VCard>
+      <VCardText>
+        <div class="d-flex align-center flex-wrap gap-4 mb-4">
+          <div class="me-3">
+            <h4 class="font-weight-medium">
+              Journal (Excel)
+            </h4>
+          </div>
+
+          <div class="d-flex align-center flex-wrap gap-4">
+            <VBtn
+              prepend-icon="bx-download"
+              variant="tonal"
+              color="primary"
+              class="me-3"
+              href="YOUR_WITH_ITEM_SAMPLE_LINK"
+              target="_blank"
+            >
+              Download With Items
+            </VBtn>
+            <VBtn
+              prepend-icon="bx-download"
+              variant="tonal"
+              color="primary"
+              class="me-3"
+              href="YOUR_WITHOUT_ITEM_SAMPLE_LINK"
+              target="_blank"
+            >
+              Download Without Items
+            </VBtn>
+            <VBtn
+              prepend-icon="bx-upload"
+              color="primary"
+              @click="showUploadDialog = true"
+            >
+              Upload
+            </VBtn>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <VDataTable
+          :headers="headers"
+          :items="uploadedFiles"
+          :items-per-page="20"
+          class="text-no-wrap"
+          fixed-header
+        >
+          <!-- Sr.No Column -->
+          <template #item.index="{ item }">
+            {{ item.raw.index }}
+          </template>
+
+          <!-- File Name Column -->
+          <template #item.uploaded_file="{ item }">
+            <div 
+              class="cursor-pointer"
+              @click="handleViewUpload(item.raw)"
+            >
+              {{ item.raw.uploaded_file }}
+            </div>
+          </template>
+
+          <!-- Send to Tally Date Range Column -->
+          <template #item.SendToTally_date="{ item }">
+            {{ item.raw.SendToTally_date || '-' }}
+          </template>
+
+          <!-- Total Column -->
+          <template #item.total="{ item }">
+            {{ item.raw.rowCounts?.total || 0 }}
+          </template>
+
+          <!-- Saved Column -->
+          <template #item.saved="{ item }">
+            {{ item.raw.rowCounts?.saved || 0 }}
+          </template>
+
+          <!-- Send to Tally Column -->
+          <template #item.synced="{ item }">
+            {{ item.raw.rowCounts?.sentToTally || 0 }}
+          </template>
+
+          <!-- Actions Column -->
+          <template #item.actions="{ item }">
+            <VBtn
+              size="small"
+              icon
+              variant="text"
+              color="error"
+              @click.stop="confirmDelete(item.raw.temp_table)"
+            >
+              <VIcon icon="bx-trash" />
+            </VBtn>
+          </template>
+        </VDataTable>
+      </VCardText>
+    </VCard>
+
+    <!-- File Upload Dialog -->
+    <FileUploadDialog
+      v-model:show="showUploadDialog"
+      title="Upload Journal"
+      upload-api="http://localhost:3001/api/uploadJournal"
+      :required-fields="compulsoryWithItems"
+      :extra-data="{
+        email: userEmail,
+        company: selectedCompany?.company_id || '',
+        withItems: true
+      }"
+      @upload-success="handleUploadSuccess"
+    />
+
+    <!-- Delete Confirmation Dialog -->
+    <VDialog
+      v-model="deleteDialog"
+      max-width="400"
+    >
+      <VCard>
+        <VCardTitle class="text-h5 pa-4">
+          Confirm Delete
+        </VCardTitle>
+        <VCardText>
+          Are you sure you want to delete this file?
+        </VCardText>
+        <VCardActions class="pa-4">
+          <VSpacer />
+          <VBtn
+            variant="tonal"
+            @click="deleteDialog = false"
+          >
+            Cancel
+          </VBtn>
+          <VBtn
+            color="error"
+            @click="deleteFile"
+          >
+            Delete
+          </VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
+  </div>
+</template>
+
 <script setup>
 import { useAuthStore } from '@/auth'
 import { useUserCompanies } from '@/composables/useUserCompanies'
@@ -30,43 +177,43 @@ const headers = [
     title: 'FILE NAME', 
     key: 'uploaded_file', 
     sortable: true, 
-    width: '40%',
-    align: 'center'
-  },
-  { 
-    title: 'BANK NAME', 
-    key: 'bank_name', 
-    sortable: true, 
-    width: '15%',
+    width: '45%',
     align: 'start'
   },
   { 
-    title: 'STATEMENT DATE RANGE', 
-    key: 'statement_date_range', 
+    title: 'SEND TO TALLY DATE RANGE', 
+    key: 'SendToTally_date', 
     sortable: true, 
-    width: '15%',
+    width: '25%',
     align: 'start'
   },
   { 
     title: 'TOTAL', 
     key: 'total', 
     sortable: true, 
-    align: 'center', 
-    width: '70px'
+    align: 'start', 
+    width: '90px'
   },
   { 
     title: 'SAVED', 
     key: 'saved', 
     sortable: true, 
-    align: 'center', 
-    width: '70px'
+    align: 'start', 
+    width: '90px'
   },
   { 
     title: 'SEND TO TALLY', 
     key: 'synced', 
     sortable: true, 
-    align: 'center', 
-    width: '90px'
+    align: 'start', 
+    width: '120px'
+  },
+  { 
+    title: 'ACTIONS', 
+    key: 'actions', 
+    sortable: false, 
+    align: 'center',
+    width: '80px'
   }
 ]
 
@@ -76,10 +223,16 @@ const uploadedFiles = ref([])
 const showUploadDialog = ref(false)
 const selectedFile = ref(null)
 const maxFileSize = 50 * 1024 * 1024
+const deleteDialog = ref(false)
+const tempTableToDelete = ref('')
 
-const compulsoryHeaders = [
-  "Date", "Particulars", "Reference", "Debit", "Credit", "Balance"
+const compulsoryWithoutItems = [
+  "Reference No", "Date", "Particulars", "Dr/Cr", "Amount"
 ]
+const compulsoryWithItems = [
+  "Reference No", "Date", "Particulars", "Name Of Item", "Quantity", "Rate", "Dr/Cr", "Amount"
+]
+
 
 // Function to fetch uploaded files data
 const fetchUploadedFiles = async () => {
@@ -88,7 +241,7 @@ const fetchUploadedFiles = async () => {
   try {
     const companyId = selectedCompany.value.company_id || ''
     
-    const filesRes = await axios.get("http://localhost:3001/api/getUserBankingUploads", {
+    const filesRes = await axios.get("http://3.108.64.167:3001/api/getUserJournelUploads", {
       params: { 
         email: userEmail.value, 
         company: companyId
@@ -98,7 +251,7 @@ const fetchUploadedFiles = async () => {
     const filesWithCounts = await Promise.all(
       filesRes.data.map(async (file, index) => {
         try {
-          const dataRes = await axios.get("http://localhost:3001/api/getBankingData", {
+          const dataRes = await axios.get("http://3.108.64.167:3001/api/getJournalData", {
             params: { tempTable: file.temp_table }
           })
           
@@ -198,7 +351,9 @@ const uploadFile = async () => {
     }
 
     const keys = Object.keys(json[0] || {})
-    const missingHeaders = compulsoryHeaders.filter(key => !keys.includes(key))
+    const isWithItems = keys.includes("Name Of Item")
+    const compulsory = isWithItems ? compulsoryWithItems : compulsoryWithoutItems
+    const missingHeaders = compulsory.filter(key => !keys.includes(key))
     
     if (missingHeaders.length > 0) {
       error.value = `Missing compulsory headers: ${missingHeaders.join(', ')}`
@@ -207,10 +362,11 @@ const uploadFile = async () => {
 
     try {
       uploading.value = true
-      const res = await axios.post("http://localhost:3001/api/uploadBanking", {
+      const res = await axios.post("http://3.108.64.167:3001/api/uploadJournal", {
         email: userEmail.value,
-        company: selectedCompany.value.company_id,
+        company: selectedCompany.value.company_id || '',
         data: json,
+        withItems: isWithItems,
         uploadedFileName: selectedFile.value.name
       })
 
@@ -240,11 +396,17 @@ const uploadFile = async () => {
   reader.readAsArrayBuffer(selectedFile.value)
 }
 
-const handleDeleteSelected = async (tableName) => {
+const confirmDelete = (tableName) => {
+  tempTableToDelete.value = tableName
+  deleteDialog.value = true
+}
+
+const deleteFile = async () => {
   try {
-    await axios.delete('http://localhost:3001/api/deleteBankingUpload', {
-      data: { table: tableName }
+    await axios.delete('http://3.108.64.167:3001/api/deleteJournelUpload', {
+      data: { table: tempTableToDelete.value }
     })
+    deleteDialog.value = false
     fetchUploadedFiles()
   } catch (err) {
     console.error("Failed to delete", err)
@@ -254,7 +416,7 @@ const handleDeleteSelected = async (tableName) => {
 const handleViewUpload = (file) => {
   sessionStorage.setItem('tempTable', file.temp_table)
   sessionStorage.setItem('uploadMeta', JSON.stringify({ invalidLedgers: file.invalid_ledgers || [] }))
-  router.push('/banking-view')
+  router.push('/excel-view')
 }
 
 const handleUploadSuccess = (result) => {
@@ -276,131 +438,6 @@ const handleUploadSuccess = (result) => {
 }
 </script>
 
-<template>
-  <div>
-    <VCard>
-        <VCardText>
-        <div class="d-flex align-center flex-wrap gap-4 mb-4">
-          <div class="me-3">
-            <h4 class="font-weight-medium">
-              Banking (Excel)
-            </h4>
-          </div>
-
-          <div class="d-flex align-center flex-wrap gap-4">
-            <VBtn
-              prepend-icon="bx-download"
-              variant="tonal"
-              color="primary"
-              class="me-3"
-              href="YOUR_BANKING_SAMPLE_LINK"
-              target="_blank"
-            >
-              Download Sample
-            </VBtn>
-            <VBtn
-              prepend-icon="bx-upload"
-              color="primary"
-              @click="showUploadDialog = true"
-            >
-              Upload
-            </VBtn>
-          </div>
-        </div>
-
-        <!-- Table -->
-        <VDataTable
-          :headers="headers"
-          :items="uploadedFiles"
-          :items-per-page="20"
-          class="text-no-wrap"
-          fixed-header
-        >
-          <!-- Sr.No Column -->
-          <template #item.index="{ item }">
-            {{ item.raw.index }}
-          </template>
-
-          <!-- File Name Column -->
-          <template #item.uploaded_file="{ item }">
-            {{ item.raw.uploaded_file }}
-          </template>
-
-          <!-- Bank Name Column -->
-          <template #item.bank_name="{ item }">
-            {{ item.raw.bank_name || '-' }}
-          </template>
-
-          <!-- Statement Date Range Column -->
-          <template #item.statement_date_range="{ item }">
-            {{ item.raw.statement_date_range || '-' }}
-          </template>
-
-          <!-- Total Column -->
-          <template #item.total="{ item }">
-            {{ item.raw.rowCounts?.total || 0 }}
-          </template>
-
-          <!-- Saved Column -->
-          <template #item.saved="{ item }">
-            {{ item.raw.rowCounts?.saved || 0 }}
-          </template>
-
-          <!-- Synced Column -->
-          <template #item.synced="{ item }">
-            {{ item.raw.rowCounts?.sentToTally || 0 }}
-          </template>
-
-          <!-- Actions Column -->
-          <template #item.actions="{ item }">
-            <div class="d-flex gap-1">
-              <VBtn
-                size="small"
-                icon
-                variant="text"
-                color="primary"
-                @click="handleViewUpload(item.raw)"
-              >
-                <VIcon icon="bx-show" />
-              </VBtn>
-              <VBtn
-                size="small"
-                icon
-                variant="text"
-                color="primary"
-              >
-                <VIcon icon="bx-download" />
-              </VBtn>
-              <VBtn
-                size="small"
-                icon
-                variant="text"
-                color="error"
-                @click.stop="handleDeleteSelected(item.raw.temp_table)"
-              >
-                <VIcon icon="bx-trash" />
-              </VBtn>
-            </div>
-          </template>
-        </VDataTable>
-        </VCardText>
-      </VCard>
-
-    <!-- File Upload Dialog -->
-    <FileUploadDialog
-      v-model:show="showUploadDialog"
-      title="Upload Banking Data"
-      upload-api="http://localhost:3001/api/uploadBanking"
-      :required-fields="compulsoryHeaders"
-      :extra-data="{
-        email: userEmail,
-        company: selectedCompany?.company_id || ''
-      }"
-      @upload-success="handleUploadSuccess"
-    />
-  </div>
-</template>
-
 <style lang="scss" scoped>
 .v-data-table {
   .v-data-table-header {
@@ -421,6 +458,15 @@ const handleUploadSuccess = (result) => {
     &.text-center {
       padding-inline: 8px;
     }
+  }
+}
+
+.cursor-pointer {
+  cursor: pointer;
+
+  &:hover {
+    color: rgb(var(--v-theme-primary));
+    text-decoration: underline;
   }
 }
 
@@ -449,4 +495,4 @@ const handleUploadSuccess = (result) => {
     }
   }
 }
-</style>
+</style> 

@@ -61,14 +61,14 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue";
   <!-- 👉 Bulk Upload -->
   <VerticalNavGroup
     :item="{
-      title: 'Bulk Upload',
+      title: 'Accounting',
       icon: 'bx-upload',
     }"
   >
     <VerticalNavLink
       :item="{
         title: 'Banking',
-        to: '/bulk-upload/banking',
+        to: '/banking',
         icon: ' bxs-bank',
         iconSize: '22',
       }"
@@ -76,15 +76,16 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue";
     <VerticalNavLink
       :item="{
         title: 'Journal',
-        to: '/bulk-upload/journal',
+        to: '/journal',
         icon: 'bx-book-bookmark',
-        iconSize: '22',
+        iconSize: '20',
+        class: 'nav-journal-link'
       }"
     />
     <VerticalNavLink
       :item="{
         title: 'Sales',
-        to: '/bulk-upload/sales',
+        to: '/sales',
         icon: 'bx-store',
         iconSize: '22',
       }"
@@ -92,15 +93,15 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue";
     <VerticalNavLink
       :item="{
         title: 'Sales-Return',
-        to: '/bulk-upload/sales-return',
-        icon: 'bx-cart',
+        to: '/sales-return',
+        icon: 'bx-cart-alt',
         iconSize: '22',
       }"
     />
     <VerticalNavLink
       :item="{
         title: 'Purchase',
-        to: '/bulk-upload/purchase',
+        to: '/purchase',
         icon: 'bx-cart-add',
         iconSize: '22',
       }"
@@ -108,7 +109,7 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue";
     <VerticalNavLink
       :item="{
         title: 'Purchase-Return',
-        to: '/bulk-upload/purchase-return',
+        to: '/purchase-return',
         icon: 'bx-cart-download',
         iconSize: '22',
       }"
@@ -116,7 +117,7 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue";
     <VerticalNavLink
       :item="{
         title: 'Ledger',
-        to: '/bulk-upload/Ledger',
+        to: '/ledger',
         icon: 'bx-book-content',
         iconSize: '22',
       }"
@@ -124,7 +125,7 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue";
     <VerticalNavLink
       :item="{
         title: 'Items',
-        to: '/bulk-upload/items',
+        to: '/items',
         icon: 'bx-package',
         iconSize: '22',
       }"

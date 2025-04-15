@@ -1,10 +1,10 @@
+<!-- eslint-disable camelcase -->
 <script setup>
 import { useAuthStore } from '@/auth'
 import { useUserCompanies } from '@/composables/useUserCompanies'
 import axios from 'axios'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import * as XLSX from 'xlsx'
 import FileUploadDialog from '~/components/FileUploadDialog.vue'
 
 definePageMeta({ layout: 'default' })
@@ -24,71 +24,73 @@ const headers = [
     key: 'index', 
     sortable: false, 
     width: '70px',
-    align: 'start'
+    align: 'start',
   },
   { 
     title: 'FILE NAME', 
     key: 'uploaded_file', 
     sortable: true, 
     width: '40%',
-    align: 'center'
+    align: 'start',
   },
   { 
-    title: 'BANK NAME', 
-    key: 'bank_name', 
+    title: 'DATE RANGE', 
+    key: 'date_range', 
     sortable: true, 
     width: '15%',
-    align: 'start'
-  },
-  { 
-    title: 'STATEMENT DATE RANGE', 
-    key: 'statement_date_range', 
-    sortable: true, 
-    width: '15%',
-    align: 'start'
+    align: 'start',
   },
   { 
     title: 'TOTAL', 
     key: 'total', 
     sortable: true, 
-    align: 'center', 
-    width: '70px'
+    align: 'start', 
+    width: '70px',
   },
   { 
     title: 'SAVED', 
     key: 'saved', 
     sortable: true, 
-    align: 'center', 
-    width: '70px'
+    align: 'start', 
+    width: '70px',
+  },
+  { 
+    title: 'PENDING', 
+    key: 'pending', 
+    sortable: true, 
+    align: 'start', 
+    width: '90px',
   },
   { 
     title: 'SEND TO TALLY', 
-    key: 'synced', 
+    key: 'sent_to_tally', 
     sortable: true, 
-    align: 'center', 
-    width: '90px'
-  }
+    align: 'start', 
+    width: '90px',
+  },
+  { 
+    title: 'STATUS', 
+    key: 'status', 
+    sortable: true, 
+    align: 'start', 
+    width: '90px',
+  },
 ]
 
-const error = ref('')
-const uploading = ref(false)
 const uploadedFiles = ref([])
 const showUploadDialog = ref(false)
 const selectedFile = ref(null)
+const error = ref('')
+const uploading = ref(false)
 const maxFileSize = 50 * 1024 * 1024
 
-const compulsoryHeaders = [
-  "Date", "Particulars", "Reference", "Debit", "Credit", "Balance"
-]
-
-// Function to fetch uploaded files data
 const fetchUploadedFiles = async () => {
   if (!userEmail.value || !selectedCompany.value) return
   
   try {
     const companyId = selectedCompany.value.company_id || ''
     
-    const filesRes = await axios.get("http://localhost:3001/api/getUserBankingUploads", {
+    const filesRes = await axios.get("http://localhost:3001/api/getUserPurchaseUploads", {
       params: { 
         email: userEmail.value, 
         company: companyId
@@ -98,12 +100,13 @@ const fetchUploadedFiles = async () => {
     const filesWithCounts = await Promise.all(
       filesRes.data.map(async (file, index) => {
         try {
-          const dataRes = await axios.get("http://localhost:3001/api/getBankingData", {
+          const dataRes = await axios.get("http://localhost:3001/api/getPurchaseData", {
             params: { tempTable: file.temp_table }
           })
           
           const totalRows = dataRes.data?.length || 0
           let savedRows = 0
+          let pendingRows = 0
           let sentToTallyRows = 0
           
           if (dataRes.data && Array.isArray(dataRes.data)) {
@@ -114,6 +117,8 @@ const fetchUploadedFiles = async () => {
                   savedRows++
                 } else if (status === 'sent_to_tally' || status === 'send to tally') {
                   sentToTallyRows++
+                } else if (status === 'pending') {
+                  pendingRows++
                 }
               }
             })
@@ -125,6 +130,7 @@ const fetchUploadedFiles = async () => {
             rowCounts: {
               total: totalRows,
               saved: savedRows,
+              pending: pendingRows,
               sentToTally: sentToTallyRows
             }
           }
@@ -136,6 +142,7 @@ const fetchUploadedFiles = async () => {
             rowCounts: {
               total: 0,
               saved: 0,
+              pending: 0,
               sentToTally: 0
             }
           }
@@ -148,19 +155,6 @@ const fetchUploadedFiles = async () => {
     console.error("Failed to fetch uploaded files", err)
   }
 }
-
-// Fetch data when component mounts
-onMounted(() => {
-  fetchUploadedFiles()
-})
-
-// Watch the selected company and refetch data when it changes
-watch(selectedCompany, newCompany => {
-  console.log('Selected company changed to:', newCompany)
-  if (newCompany && newCompany.company_id) {
-    fetchUploadedFiles()
-  }
-}, { deep: true, immediate: true })
 
 const handleFileUpload = (file) => {
   error.value = ''
@@ -180,81 +174,24 @@ const handleFileUpload = (file) => {
 }
 
 const uploadFile = async () => {
-  if (!selectedFile.value) return
+  // Implement upload logic
+}
 
-  const reader = new FileReader()
-  reader.onload = async (e) => {
-    const data = new Uint8Array(e.target.result)
-    const workbook = XLSX.read(data, { type: 'array' })
-    const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const json = XLSX.utils.sheet_to_json(sheet, {
-      defval: "",
-      raw: false
-    })
-
-    if (!json || json.length === 0) {
-      error.value = "Excel file is empty or unreadable."
-      return
-    }
-
-    const keys = Object.keys(json[0] || {})
-    const missingHeaders = compulsoryHeaders.filter(key => !keys.includes(key))
-    
-    if (missingHeaders.length > 0) {
-      error.value = `Missing compulsory headers: ${missingHeaders.join(', ')}`
-      return
-    }
-
-    try {
-      uploading.value = true
-      const res = await axios.post("http://localhost:3001/api/uploadBanking", {
-        email: userEmail.value,
-        company: selectedCompany.value.company_id,
-        data: json,
-        uploadedFileName: selectedFile.value.name
-      })
-
-      uploadedFiles.value = [
-        ...uploadedFiles.value,
-        {
-          uploaded_file: selectedFile.value.name,
-          created_at: new Date().toISOString(),
-          temp_table: res.data.table,
-          invalid_ledgers: res.data.invalidLedgers || [],
-          rowCounts: {
-            total: 0,
-            saved: 0,
-            sentToTally: 0
-          }
-        }
-      ]
-      showUploadDialog.value = false
-      selectedFile.value = null
-    } catch (err) {
-      error.value = err.response?.data?.error || "Failed to upload data."
-    } finally {
-      uploading.value = false
-    }
-  }
-
-  reader.readAsArrayBuffer(selectedFile.value)
+const handleViewUpload = (file) => {
+  sessionStorage.setItem('tempTable', file.temp_table)
+  sessionStorage.setItem('uploadMeta', JSON.stringify({ invalidLedgers: file.invalid_ledgers || [] }))
+  router.push('/purchase-view')
 }
 
 const handleDeleteSelected = async (tableName) => {
   try {
-    await axios.delete('http://localhost:3001/api/deleteBankingUpload', {
+    await axios.delete('http://localhost:3001/api/deletePurchaseUpload', {
       data: { table: tableName }
     })
     fetchUploadedFiles()
   } catch (err) {
     console.error("Failed to delete", err)
   }
-}
-
-const handleViewUpload = (file) => {
-  sessionStorage.setItem('tempTable', file.temp_table)
-  sessionStorage.setItem('uploadMeta', JSON.stringify({ invalidLedgers: file.invalid_ledgers || [] }))
-  router.push('/banking-view')
 }
 
 const handleUploadSuccess = (result) => {
@@ -274,16 +211,29 @@ const handleUploadSuccess = (result) => {
   ]
   fetchUploadedFiles()
 }
+
+// Fetch data when component mounts
+onMounted(() => {
+  fetchUploadedFiles()
+})
+
+// Watch the selected company and refetch data when it changes
+watch(selectedCompany, newCompany => {
+  console.log('Selected company changed to:', newCompany)
+  if (newCompany && newCompany.company_id) {
+    fetchUploadedFiles()
+  }
+}, { deep: true, immediate: true })
 </script>
 
 <template>
   <div>
     <VCard>
-        <VCardText>
+      <VCardText>
         <div class="d-flex align-center flex-wrap gap-4 mb-4">
           <div class="me-3">
             <h4 class="font-weight-medium">
-              Banking (Excel)
+              Purchase (Excel)
             </h4>
           </div>
 
@@ -293,8 +243,6 @@ const handleUploadSuccess = (result) => {
               variant="tonal"
               color="primary"
               class="me-3"
-              href="YOUR_BANKING_SAMPLE_LINK"
-              target="_blank"
             >
               Download Sample
             </VBtn>
@@ -326,14 +274,9 @@ const handleUploadSuccess = (result) => {
             {{ item.raw.uploaded_file }}
           </template>
 
-          <!-- Bank Name Column -->
-          <template #item.bank_name="{ item }">
-            {{ item.raw.bank_name || '-' }}
-          </template>
-
-          <!-- Statement Date Range Column -->
-          <template #item.statement_date_range="{ item }">
-            {{ item.raw.statement_date_range || '-' }}
+          <!-- Date Range Column -->
+          <template #item.date_range="{ item }">
+            {{ item.raw.date_range || '-' }}
           </template>
 
           <!-- Total Column -->
@@ -346,9 +289,24 @@ const handleUploadSuccess = (result) => {
             {{ item.raw.rowCounts?.saved || 0 }}
           </template>
 
-          <!-- Synced Column -->
-          <template #item.synced="{ item }">
+          <!-- Pending Column -->
+          <template #item.pending="{ item }">
+            {{ item.raw.rowCounts?.pending || 0 }}
+          </template>
+
+          <!-- Sent to Tally Column -->
+          <template #item.sent_to_tally="{ item }">
             {{ item.raw.rowCounts?.sentToTally || 0 }}
+          </template>
+
+          <!-- Status Column -->
+          <template #item.status="{ item }">
+            <VChip
+              :color="item.raw.status === 'Completed' ? 'success' : 'warning'"
+              size="small"
+            >
+              {{ item.raw.status || 'Pending' }}
+            </VChip>
           </template>
 
           <!-- Actions Column -->
@@ -383,14 +341,14 @@ const handleUploadSuccess = (result) => {
             </div>
           </template>
         </VDataTable>
-        </VCardText>
-      </VCard>
+      </VCardText>
+    </VCard>
 
     <!-- File Upload Dialog -->
     <FileUploadDialog
       v-model:show="showUploadDialog"
-      title="Upload Banking Data"
-      upload-api="http://localhost:3001/api/uploadBanking"
+      title="Upload Purchase Data"
+      upload-api="http://localhost:3001/api/uploadPurchase"
       :required-fields="compulsoryHeaders"
       :extra-data="{
         email: userEmail,
@@ -449,4 +407,4 @@ const handleUploadSuccess = (result) => {
     }
   }
 }
-</style>
+</style> 
