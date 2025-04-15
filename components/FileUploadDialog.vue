@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import * as XLSX from 'xlsx'
 
 const props = defineProps({
@@ -43,14 +43,36 @@ const selectedFile = ref(null)
 const error = ref('')
 const uploading = ref(false)
 const fileInput = ref(null)
+const bankElement = ref(null)
 
-const handleFileUpload = (event) => {
+// Check if bank is selected from slot
+const isBankRequired = ref(false)
+
+const isBankSelected = computed(() => {
+  if (!isBankRequired.value) return true
+  
+  return !!props.extraData.bank
+})
+
+// Check for bank selection slot on component mount
+onMounted(() => {
+  // Wait for DOM to be ready
+  setTimeout(() => {
+    const bankSelectionSlot = document.querySelector('.bank-selection-slot-wrapper')
+
+    isBankRequired.value = !!bankSelectionSlot
+  }, 100)
+})
+
+const handleFileUpload = event => {
   error.value = ''
+
   const file = event.target?.files?.[0] || event
   if (!file) return
 
   if (file.size > props.maxFileSize) {
     error.value = "File size exceeds 50MB limit."
+    
     return
   }
 
@@ -59,77 +81,113 @@ const handleFileUpload = (event) => {
 
 const uploadFile = async () => {
   if (!selectedFile.value) return
-
-  const reader = new FileReader()
-  reader.onload = async (e) => {
-    const data = new Uint8Array(e.target.result)
-    const workbook = XLSX.read(data, { type: 'array' })
-    const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const json = XLSX.utils.sheet_to_json(sheet, {
-      defval: "",
-      raw: false
-    })
-
-    if (!json || json.length === 0) {
-      error.value = "Excel file is empty or unreadable."
-      return
-    }
-
-    if (props.requiredFields && props.requiredFields.length > 0) {
-      const firstRow = json[0] || {}
-      const keys = Object.keys(firstRow)
-      const missingHeaders = props.requiredFields.filter(key => !keys.includes(key))
-      
-      if (missingHeaders.length > 0) {
-        error.value = `Missing compulsory headers: ${missingHeaders.join(', ')}`
-        return
-      }
-    }
-
-    try {
-      uploading.value = true
-      
-      const formData = new FormData()
-      formData.append('file', selectedFile.value)
-      
-      // Add any extra data from props
-      const extraData = props.extraData || {}
-      Object.entries(extraData).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          formData.append(key, value)
-        }
-      })
-
-      const res = await fetch(props.uploadApi, {
-        method: 'POST',
-        body: formData,
-      })
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: 'Upload failed' }))
-        throw new Error(errorData.error || 'Upload failed')
-      }
-      
-      const data = await res.json()
-      
-      emit('upload-success', {
-        file: selectedFile.value,
-        response: data
-      })
-      
-      closeDialog()
-      
-      if (props.redirectPath) {
-        navigateTo(props.redirectPath)
-      }
-    } catch (err) {
-      error.value = err.message || "Failed to upload data."
-    } finally {
-      uploading.value = false
-    }
+  
+  // Validate bank selection if required
+  if (isBankRequired.value && !isBankSelected.value) {
+    error.value = "Please select a bank before uploading a statement."
+    
+    return
   }
 
-  reader.readAsArrayBuffer(selectedFile.value)
+  // Check file type
+  const fileType = selectedFile.value.name.split('.').pop().toLowerCase()
+  const isPdf = fileType === 'pdf'
+  const isExcel = ['xls', 'xlsx'].includes(fileType)
+  
+  if (!isPdf && !isExcel) {
+    error.value = "Only Excel (.xls, .xlsx) and PDF (.pdf) files are allowed."
+    
+    return
+  }
+  
+  // For Excel files, validate content
+  if (isExcel) {
+    const reader = new FileReader()
+
+    reader.onload = async e => {
+      try {
+        const data = new Uint8Array(e.target.result)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+
+        const json = XLSX.utils.sheet_to_json(sheet, {
+          defval: "",
+          raw: false,
+        })
+
+        if (!json || json.length === 0) {
+          error.value = "Excel file is empty or unreadable."
+          
+          return
+        }
+
+        if (props.requiredFields.length > 0) {
+          const keys = Object.keys(json[0] || {})
+          const missingHeaders = props.requiredFields.filter(key => !keys.includes(key))
+          
+          if (missingHeaders.length > 0) {
+            error.value = `Missing compulsory headers: ${missingHeaders.join(', ')}`
+            
+            return
+          }
+        }
+
+        // Submit the validated Excel file
+        await submitFile()
+      } catch (err) {
+        error.value = "Failed to read Excel file. Make sure it's not corrupted or password protected."
+        console.error('Excel parsing error:', err)
+      }
+    }
+
+    reader.readAsArrayBuffer(selectedFile.value)
+  } else {
+    // For PDF files, skip Excel validation and submit directly
+    await submitFile()
+  }
+}
+
+// Separate submit function for both file types
+const submitFile = async () => {
+  try {
+    uploading.value = true
+    
+    const formData = new FormData()
+
+    formData.append('file', selectedFile.value)
+    
+    // Add any extra data from props
+    Object.entries(props.extraData).forEach(([key, value]) => {
+      formData.append(key, value)
+    })
+
+    const res = await fetch(props.uploadApi, {
+      method: 'POST',
+      body: formData,
+    })
+    
+    if (!res.ok) {
+      const errorData = await res.json()
+      throw new Error(errorData.error || 'Upload failed')
+    }
+    
+    const data = await res.json()
+    
+    emit('upload-success', {
+      file: selectedFile.value,
+      response: data,
+    })
+    
+    closeDialog()
+    
+    if (props.redirectPath) {
+      navigateTo(props.redirectPath)
+    }
+  } catch (err) {
+    error.value = err.message || "Failed to upload data."
+  } finally {
+    uploading.value = false
+  }
 }
 
 const closeDialog = () => {
@@ -142,9 +200,9 @@ const closeDialog = () => {
 <template>
   <VDialog
     :model-value="show"
-    @update:model-value="$emit('update:show', $event)"
     max-width="550"
     persistent
+    @update:model-value="$emit('update:show', $event)"
   >
     <VCard class="rounded-lg">
       <VCardTitle class="d-flex justify-space-between align-center pa-4 border-bottom">
@@ -160,6 +218,11 @@ const closeDialog = () => {
       </VCardTitle>
 
       <VCardText class="pa-6">
+        <!-- Bank Selection Slot - Add this new slot -->
+        <div class="mb-6 bank-selection-slot-wrapper">
+          <slot name="bank-selection" />
+        </div>
+        
         <!-- File Upload Area -->
         <VCard
           flat
@@ -173,7 +236,9 @@ const closeDialog = () => {
               size="42"
               class="mb-3 text-primary"
             />
-            <h3 class="text-h6 mb-2">{{ title }}</h3>
+            <h3 class="text-h6 mb-2">
+              {{ title }}
+            </h3>
             <p class="text-body-2 text-medium-emphasis mb-4">
               Click to browse or drag and drop your file
             </p>
@@ -190,12 +255,15 @@ const closeDialog = () => {
               :accept="acceptedFormats"
               class="d-none"
               @change="handleFileUpload"
-            />
+            >
           </div>
-          <div v-else class="py-2">
+          <div
+            v-else
+            class="py-2"
+          >
             <div class="d-flex align-center">
               <VIcon
-                icon="bx-file"
+                :icon="selectedFile.name.endsWith('.pdf') ? 'bx-file-pdf' : 'bx-file-excel'"
                 size="32"
                 color="primary"
                 class="me-3"
@@ -239,7 +307,10 @@ const closeDialog = () => {
               <div class="font-weight-medium">
                 {{ error ? 'Missing data' : 'Uploading...' }}
               </div>
-              <div v-if="error" class="text-body-2 mt-1">
+              <div
+                v-if="error"
+                class="text-body-2 mt-1"
+              >
                 {{ error }}
               </div>
             </div>
@@ -248,7 +319,9 @@ const closeDialog = () => {
 
         <!-- Upload Rules -->
         <div class="mb-3">
-          <div class="text-subtitle-1 font-weight-medium mb-3">Upload Rules:</div>
+          <div class="text-subtitle-1 font-weight-medium mb-3">
+            Upload Rules:
+          </div>
           
           <!-- Rule 1 -->
           <div class="d-flex align-start mb-2">
@@ -285,7 +358,7 @@ const closeDialog = () => {
               class="me-3 mt-2"
             />
             <span class="text-medium-emphasis">
-              Only <span class="text-primary font-weight-bold">.xls and .xlsx</span> files allowed.
+              Only <span class="text-primary font-weight-bold">.xls, .xlsx, and .pdf</span> files allowed.
             </span>
           </div>
           
@@ -341,7 +414,7 @@ const closeDialog = () => {
         <VBtn
           color="primary"
           :loading="uploading"
-          :disabled="!selectedFile"
+          :disabled="!selectedFile || (isBankRequired && !isBankSelected)"
           @click="uploadFile"
         >
           Upload

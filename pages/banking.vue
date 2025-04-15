@@ -1,11 +1,10 @@
+<!-- eslint-disable camelcase -->
 <script setup>
 import { useAuthStore } from '@/auth'
+import FileUploadDialog from '@/components/FileUploadDialog.vue'
 import { useUserCompanies } from '@/composables/useUserCompanies'
-import axios from 'axios'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import * as XLSX from 'xlsx'
-import FileUploadDialog from '~/components/FileUploadDialog.vue'
 
 definePageMeta({ layout: 'default' })
 
@@ -18,268 +17,362 @@ const { selectedCompany } = useUserCompanies()
 // Use the email from the auth store
 const userEmail = computed(() => authStore.userEmail)
 
+// Store the uploaded files data
+const uploadedFiles = ref([])
+
+// Function to handle row click
+const handleRowClick = item => {
+  console.log('Row clicked:', item)
+  
+  // Check if item has necessary identifiers
+  if (item && item.raw && item.raw.temp_table) {
+    // Get the filename and ID
+    const tempTableId = item.raw.temp_table
+    const filename = item.raw.uploaded_file
+    
+    console.log(`Navigating to bankingview with id=${tempTableId}`)
+    
+    // Use the exact page name as it appears in the file system
+    router.push({
+      path: '/bankingview',  // This matches the file name pages/bankingview.vue
+      query: { 
+        id: tempTableId,
+        filename: filename,
+      },
+    })
+  } else {
+    console.error('Cannot navigate: Missing temp_table identifier', item)
+  }
+}
+
+// Fetch temp tables from API using email and selected company
+const fetchTempTables = async () => {
+  console.log('Selected company:', selectedCompany.value)
+  
+  if (!userEmail.value || !selectedCompany.value) return
+
+  try {
+    // Use query parameters instead of POST body
+    const companyId = selectedCompany.value.company_id || ''
+
+    console.log('Using company ID for API call:', companyId)
+
+    const apiUrl = `http://3.108.64.167:3001/api/getAllTempTables?email=${encodeURIComponent(userEmail.value)}&company=${encodeURIComponent(companyId)}`
+    
+    console.log('Calling API with URL:', apiUrl)
+
+    const response = await fetch(apiUrl)
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch temp tables')
+    }
+
+    const data = await response.json()
+
+    console.log('Temp tables:', data)
+    
+    // Wrap API data in 'raw' to match template bindings and add an index property
+    if (Array.isArray(data)) {
+      uploadedFiles.value = data.map((item, index) => ({
+        raw: { ...item },
+        index: index + 1,
+      }))
+    }
+  } catch (error) {
+    console.error('Error fetching temp tables:', error)
+  }
+}
+
+// Fetch data when component mounts
+onMounted(() => {
+  fetchTempTables()
+})
+
+// Watch the entire selectedCompany object with a deep watcher.
+// This ensures that whenever the entire company object is changed (or its nested properties),
+// the fetchTempTables function will be triggered.
+watch(selectedCompany, newCompany => {
+  console.log('Selected company changed to:', newCompany)
+  if (newCompany && newCompany.company_id) {
+    fetchTempTables()
+  }
+}, { deep: true, immediate: true })
+
 const headers = [
   { 
     title: 'SR.NO', 
     key: 'index', 
     sortable: false, 
     width: '70px',
-    align: 'start'
+    align: 'start',
+    paddingRight: '0px',
   },
   { 
     title: 'FILE NAME', 
     key: 'uploaded_file', 
     sortable: true, 
-    width: '40%',
-    align: 'center'
+    width: '250px',
+    align: 'start',
+    paddingRight: '0px',
   },
   { 
     title: 'BANK NAME', 
     key: 'bank_name', 
     sortable: true, 
     width: '15%',
-    align: 'start'
+    align: 'start',
+    paddingRight: '0px',
   },
   { 
     title: 'STATEMENT DATE RANGE', 
     key: 'statement_date_range', 
     sortable: true, 
     width: '15%',
-    align: 'start'
+    align: 'start',
+    paddingRight: '0px',
   },
   { 
     title: 'TOTAL', 
     key: 'total', 
     sortable: true, 
-    align: 'center', 
-    width: '70px'
+    align: 'start',
+    width: '50px',
+    padding: '0px',
   },
   { 
     title: 'SAVED', 
     key: 'saved', 
     sortable: true, 
-    align: 'center', 
-    width: '70px'
+    align: 'start',
+    width: '50px',
+    paddingRight: '0px',
+    paddingLeft: '0px',
   },
   { 
-    title: 'SEND TO TALLY', 
+    title: 'PENDING', 
     key: 'synced', 
     sortable: true, 
+    align: 'start',
+    width: '10px',
+    paddingRight: '0px',
+    paddingLeft: '0px',
+  },
+  { 
+    title: 'SEND DATA', 
+    key: 'synced', 
+    sortable: true, 
+    align: 'start',
+    width: '20px',
+    paddingRight: '0px',
+    paddingLeft: '0px',
+  },
+  { 
+    title: 'STATUS', 
+    key: 'synced', 
+    sortable: true, 
+    align: 'start', 
+    width: '70px',
+    paddingRight: '0px',
+  },
+  { 
+    title: '', // Empty title for delete icon
+    key: 'actions', 
+    sortable: false, 
     align: 'center', 
-    width: '90px'
-  }
+    width: '0px',
+    padding: '0px',
+  },
 ]
 
-const error = ref('')
-const uploading = ref(false)
-const uploadedFiles = ref([])
 const showUploadDialog = ref(false)
 const selectedFile = ref(null)
-const maxFileSize = 50 * 1024 * 1024
+const error = ref(null)
+const uploading = ref(false)
 
-const compulsoryHeaders = [
-  "Date", "Particulars", "Reference", "Debit", "Credit", "Balance"
-]
+// Replace the static banks with a fetch from API
+const banks = ref([])
 
-// Function to fetch uploaded files data
-const fetchUploadedFiles = async () => {
-  if (!userEmail.value || !selectedCompany.value) return
-  
+// Add loading state for bank names fetch
+const loadingBanks = ref(false)
+
+// Update fetch bank names function with loading state
+const fetchBankNames = async () => {
   try {
-    const companyId = selectedCompany.value.company_id || ''
+    if (!selectedCompany.value?.company_id) return
     
-    const filesRes = await axios.get("http://localhost:3001/api/getUserBankingUploads", {
-      params: { 
-        email: userEmail.value, 
-        company: companyId
-      }
-    })
+    loadingBanks.value = true
+
+    const companyId = selectedCompany.value.company_id
     
-    const filesWithCounts = await Promise.all(
-      filesRes.data.map(async (file, index) => {
-        try {
-          const dataRes = await axios.get("http://localhost:3001/api/getBankingData", {
-            params: { tempTable: file.temp_table }
-          })
-          
-          const totalRows = dataRes.data?.length || 0
-          let savedRows = 0
-          let sentToTallyRows = 0
-          
-          if (dataRes.data && Array.isArray(dataRes.data)) {
-            dataRes.data.forEach(row => {
-              if (row.status) {
-                const status = row.status.toLowerCase()
-                if (status === 'saved') {
-                  savedRows++
-                } else if (status === 'sent_to_tally' || status === 'send to tally') {
-                  sentToTallyRows++
-                }
-              }
-            })
-          }
-          
-          return {
-            ...file,
-            index: index + 1,
-            rowCounts: {
-              total: totalRows,
-              saved: savedRows,
-              sentToTally: sentToTallyRows
-            }
-          }
-        } catch (err) {
-          console.error("Failed to get row counts for table:", file.temp_table, err)
-          return {
-            ...file,
-            index: index + 1,
-            rowCounts: {
-              total: 0,
-              saved: 0,
-              sentToTally: 0
-            }
-          }
-        }
-      })
-    )
+    const response = await fetch(`http://3.108.64.167:3001/api/getBankNames?company=${encodeURIComponent(companyId)}`)
     
-    uploadedFiles.value = filesWithCounts
-  } catch (err) {
-    console.error("Failed to fetch uploaded files", err)
+    if (!response.ok) {
+      throw new Error('Failed to fetch bank names')
+    }
+    
+    const data = await response.json()
+    
+    // Transform API response format to match our dropdown format
+    if (data && Array.isArray(data.bank_names)) {
+      banks.value = data.bank_names.map(bankName => ({
+        title: `${bankName} Bank`,
+        value: bankName.toLowerCase(),
+      }))
+    }
+    
+    console.log('Fetched bank names:', banks.value)
+  } catch (error) {
+    console.error('Error fetching bank names:', error)
+
+    // Fallback to empty array if API fails
+    banks.value = []
+  } finally {
+    loadingBanks.value = false
   }
 }
 
-// Fetch data when component mounts
+// Fetch bank names when component mounts and when company changes
 onMounted(() => {
-  fetchUploadedFiles()
+  fetchBankNames()
 })
 
-// Watch the selected company and refetch data when it changes
-watch(selectedCompany, newCompany => {
-  console.log('Selected company changed to:', newCompany)
-  if (newCompany && newCompany.company_id) {
-    fetchUploadedFiles()
+// Watch for company changes to update bank names
+watch(selectedCompany, () => {
+  fetchBankNames()
+
+  // Reset selected bank when company changes
+  selectedBank.value = null
+}, { deep: true })
+
+// Add bank selection state
+const selectedBank = ref(null)
+
+// Define the API url for file uploading
+const uploadApiUrl = computed(() => {
+  const companyId = selectedCompany.value?.company_id || ''
+  
+  return `http://3.108.64.167:3001/api/uploadBankingFile?email=${encodeURIComponent(userEmail.value)}&company=${encodeURIComponent(companyId)}`
+})
+
+// Update the extra data to include the selected bank
+const uploadExtraData = computed(() => {
+  // Find the selected bank object to use the original bank name
+  const selectedBankObj = banks.value.find(bank => bank.value === selectedBank.value)
+  const bankName = selectedBankObj?.title?.replace(' Bank', '') || ''
+  
+  return {
+    email: userEmail.value,
+    company: selectedCompany.value?.company_id || '',
+    bank: bankName, // Use the original bank name without "Bank" suffix
   }
-}, { deep: true, immediate: true })
+})
 
-const handleFileUpload = (file) => {
-  error.value = ''
-  if (!file) return
+// Handle successful upload
+const handleUploadSuccess = data => {
+  console.log('Upload success:', data)
 
-  if (!userEmail.value || !selectedCompany.value) {
-    error.value = "Please login and select a company before uploading."
-    return
-  }
-
-  if (file.size > maxFileSize) {
-    error.value = "File size exceeds 50MB limit."
-    return
-  }
-
-  selectedFile.value = file
+  // Refresh the table data
+  fetchTempTables()
+  
+  // Show success message
+  showSuccessAlert.value = true
+  successMessage.value = 'File successfully uploaded'
+  
+  // Clear the success message after a delay
+  setTimeout(() => {
+    showSuccessAlert.value = false
+  }, 3000)
 }
 
-const uploadFile = async () => {
-  if (!selectedFile.value) return
+// Add delete confirmation dialog state
+const showDeleteConfirm = ref(false)
+const deleteItem = ref(null)
 
-  const reader = new FileReader()
-  reader.onload = async (e) => {
-    const data = new Uint8Array(e.target.result)
-    const workbook = XLSX.read(data, { type: 'array' })
-    const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const json = XLSX.utils.sheet_to_json(sheet, {
-      defval: "",
-      raw: false
-    })
-
-    if (!json || json.length === 0) {
-      error.value = "Excel file is empty or unreadable."
-      return
-    }
-
-    const keys = Object.keys(json[0] || {})
-    const missingHeaders = compulsoryHeaders.filter(key => !keys.includes(key))
-    
-    if (missingHeaders.length > 0) {
-      error.value = `Missing compulsory headers: ${missingHeaders.join(', ')}`
-      return
-    }
-
-    try {
-      uploading.value = true
-      const res = await axios.post("http://localhost:3001/api/uploadBanking", {
-        email: userEmail.value,
-        company: selectedCompany.value.company_id,
-        data: json,
-        uploadedFileName: selectedFile.value.name
-      })
-
-      uploadedFiles.value = [
-        ...uploadedFiles.value,
-        {
-          uploaded_file: selectedFile.value.name,
-          created_at: new Date().toISOString(),
-          temp_table: res.data.table,
-          invalid_ledgers: res.data.invalidLedgers || [],
-          rowCounts: {
-            total: 0,
-            saved: 0,
-            sentToTally: 0
-          }
-        }
-      ]
-      showUploadDialog.value = false
-      selectedFile.value = null
-    } catch (err) {
-      error.value = err.response?.data?.error || "Failed to upload data."
-    } finally {
-      uploading.value = false
-    }
-  }
-
-  reader.readAsArrayBuffer(selectedFile.value)
+// Add a delete function with API call
+const handleDelete = async (item, event) => {
+  // Stop event propagation to prevent row click
+  event.stopPropagation()
+  
+  // Store the item to be deleted and show confirmation dialog
+  deleteItem.value = item
+  showDeleteConfirm.value = true
 }
 
-const handleDeleteSelected = async (tableName) => {
+// Function to confirm deletion
+const confirmDelete = async () => {
   try {
-    await axios.delete('http://localhost:3001/api/deleteBankingUpload', {
-      data: { table: tableName }
+    if (!deleteItem.value || !deleteItem.value.raw) return
+    
+    const item = deleteItem.value.raw
+    const companyId = selectedCompany.value?.company_id || ''
+    
+    // Prepare data for API
+    const deleteData = {
+      id: item.id,
+      email: userEmail.value,
+      company: companyId,
+    }
+    
+    console.log('Deleting item with data:', deleteData)
+    
+    // Call the delete API
+    const response = await fetch('http://3.108.64.167:3001/api/deleteTempTable', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(deleteData),
     })
-    fetchUploadedFiles()
-  } catch (err) {
-    console.error("Failed to delete", err)
+    
+    if (!response.ok) {
+      throw new Error('Failed to delete item')
+    }
+    
+    // Remove item from the table data
+    uploadedFiles.value = uploadedFiles.value.filter(file => 
+      file.raw.id !== item.id,
+    )
+    
+    // Show success message
+    showSuccessAlert.value = true
+    successMessage.value = 'Item successfully deleted'
+    
+    // Close the dialog
+    showDeleteConfirm.value = false
+    
+    // Clear the success message after a delay
+    setTimeout(() => {
+      showSuccessAlert.value = false
+    }, 3000)
+    
+  } catch (error) {
+    console.error('Error deleting item:', error)
+
+    // Show error message
+    showErrorAlert.value = true
+    errorMessage.value = 'Failed to delete item: ' + error.message
+    
+    // Clear the error message after a delay
+    setTimeout(() => {
+      showErrorAlert.value = false
+    }, 5000)
   }
 }
 
-const handleViewUpload = (file) => {
-  sessionStorage.setItem('tempTable', file.temp_table)
-  sessionStorage.setItem('uploadMeta', JSON.stringify({ invalidLedgers: file.invalid_ledgers || [] }))
-  router.push('/banking-view')
-}
+// Add alert state
+const showSuccessAlert = ref(false)
+const successMessage = ref('')
+const showErrorAlert = ref(false)
+const errorMessage = ref('')
 
-const handleUploadSuccess = (result) => {
-  uploadedFiles.value = [
-    ...uploadedFiles.value,
-    {
-      uploaded_file: result.file.name,
-      created_at: new Date().toISOString(),
-      temp_table: result.response.table,
-      invalid_ledgers: result.response.invalidLedgers || [],
-      rowCounts: {
-        total: 0,
-        saved: 0,
-        sentToTally: 0
-      }
-    }
-  ]
-  fetchUploadedFiles()
-}
+// NOTE: Ensure that when a company is selected from your companies list,
+// you assign the entire company object to selectedCompany.value rather than modifying a nested property.
 </script>
 
 <template>
   <div>
     <VCard>
-        <VCardText>
+      <VCardText>
         <div class="d-flex align-center flex-wrap gap-4 mb-4">
           <div class="me-3">
             <h4 class="font-weight-medium">
@@ -293,8 +386,6 @@ const handleUploadSuccess = (result) => {
               variant="tonal"
               color="primary"
               class="me-3"
-              href="YOUR_BANKING_SAMPLE_LINK"
-              target="_blank"
             >
               Download Sample
             </VBtn>
@@ -313,116 +404,253 @@ const handleUploadSuccess = (result) => {
           :headers="headers"
           :items="uploadedFiles"
           :items-per-page="20"
-          class="text-no-wrap"
+          class="text-no-wrap fixed-table clickable-rows"
           fixed-header
         >
-          <!-- Sr.No Column -->
-          <template #item.index="{ item }">
-            {{ item.raw.index }}
-          </template>
-
-          <!-- File Name Column -->
-          <template #item.uploaded_file="{ item }">
-            {{ item.raw.uploaded_file }}
-          </template>
-
-          <!-- Bank Name Column -->
-          <template #item.bank_name="{ item }">
-            {{ item.raw.bank_name || '-' }}
-          </template>
-
-          <!-- Statement Date Range Column -->
-          <template #item.statement_date_range="{ item }">
-            {{ item.raw.statement_date_range || '-' }}
-          </template>
-
-          <!-- Total Column -->
-          <template #item.total="{ item }">
-            {{ item.raw.rowCounts?.total || 0 }}
-          </template>
-
-          <!-- Saved Column -->
-          <template #item.saved="{ item }">
-            {{ item.raw.rowCounts?.saved || 0 }}
-          </template>
-
-          <!-- Synced Column -->
-          <template #item.synced="{ item }">
-            {{ item.raw.rowCounts?.sentToTally || 0 }}
-          </template>
-
-          <!-- Actions Column -->
-          <template #item.actions="{ item }">
-            <div class="d-flex gap-1">
-              <VBtn
-                size="small"
-                icon
-                variant="text"
-                color="primary"
-                @click="handleViewUpload(item.raw)"
+          <template #item="{ item, columns }">
+            <tr
+              class="clickable-row"
+              @click="handleRowClick(item)"
+            >
+              <td
+                v-for="column in columns"
+                :key="column.key"
               >
-                <VIcon icon="bx-show" />
-              </VBtn>
-              <VBtn
-                size="small"
-                icon
-                variant="text"
-                color="primary"
-              >
-                <VIcon icon="bx-download" />
-              </VBtn>
-              <VBtn
-                size="small"
-                icon
-                variant="text"
-                color="error"
-                @click.stop="handleDeleteSelected(item.raw.temp_table)"
-              >
-                <VIcon icon="bx-trash" />
-              </VBtn>
-            </div>
+                <div
+                  v-if="column.key === 'uploaded_file'"
+                  class="file-name-cell"
+                >
+                  {{ item.raw.uploaded_file }}
+                </div>
+                <template v-else-if="column.key === 'bank_name'">
+                  {{ item.raw.bank_name || '-' }}
+                </template>
+                <template v-else-if="column.key === 'statement_date_range'">
+                  {{ item.raw.statement_date_range || '-' }}
+                </template>
+                <template v-else-if="column.key === 'total'">
+                  {{ item.raw.rowCounts?.total || 0 }}
+                </template>
+                <template v-else-if="column.key === 'saved'">
+                  {{ item.raw.rowCounts?.saved || 0 }}
+                </template>
+                <template v-else-if="column.key === 'synced'">
+                  {{ item.raw.rowCounts?.sentToTally || 0 }}
+                </template>
+                <template v-else-if="column.key === 'index'">
+                  {{ item.index }}
+                </template>
+                <template v-else-if="column.key === 'actions'">
+                  <VBtn
+                    icon
+                    size="small"
+                    color="error"
+                    variant="text"
+                    @click="(event) => handleDelete(item, event)"
+                  >
+                    <VIcon icon="bx-trash" />
+                  </VBtn>
+                </template>
+                <template v-else>
+                  {{ item.raw[column.key] }}
+                </template>
+              </td>
+            </tr>
           </template>
         </VDataTable>
-        </VCardText>
-      </VCard>
+      </VCardText>
+    </VCard>
 
-    <!-- File Upload Dialog -->
+    <!-- File Upload Dialog - Using the new component -->
     <FileUploadDialog
       v-model:show="showUploadDialog"
-      title="Upload Banking Data"
-      upload-api="http://localhost:3001/api/uploadBanking"
-      :required-fields="compulsoryHeaders"
-      :extra-data="{
-        email: userEmail,
-        company: selectedCompany?.company_id || ''
-      }"
+      title="Upload Banking Statement"
+      :upload-api="uploadApiUrl"
+      :extra-data="uploadExtraData"
+      :required-fields="['Date', 'Description', 'Debit', 'Credit', 'Balance']"
+      accepted-formats=".xls,.xlsx,.pdf"
       @upload-success="handleUploadSuccess"
-    />
+    >
+      <template #bank-selection>
+        <div class="bank-selection-slot-content">
+          <h3 class="text-subtitle-1 font-weight-medium mb-2">
+            Select Bank <span class="text-error">*</span>
+          </h3>
+          <VSelect
+            v-model="selectedBank"
+            :items="banks"
+            label="Choose your bank"
+            placeholder="Select a bank"
+            variant="outlined"
+            color="primary"
+            class="mb-2"
+            :loading="loadingBanks"
+            :disabled="loadingBanks || banks.length === 0"
+            :rules="[v => !!v || 'Bank selection is required']"
+            :hint="banks.length === 0 && !loadingBanks ? 'No banks available for this company' : ''"
+            persistent-hint
+            required
+          />
+          <div
+            v-if="!selectedBank"
+            class="text-caption text-error mb-4"
+          >
+            <VIcon
+              icon="bx-error-circle"
+              size="14"
+              class="me-1"
+            />
+            You must select a bank before uploading a statement
+          </div>
+        </div>
+      </template>
+    </FileUploadDialog>
+
+    <!-- Delete Confirmation Dialog -->
+    <VDialog
+      v-model="showDeleteConfirm"
+      max-width="600"
+    >
+      <VCard>
+        <VCardTitle class="text-h5 pa-4">
+          <VIcon
+            icon="bx-trash"
+            color="error"
+            size="24"
+            class="me-2"
+          />
+          Confirm Deletion
+        </VCardTitle>
+
+        <VCardText>
+          <p class="text-body-1">
+            Are you sure you want to delete this item? This action cannot be reversed.
+          </p>
+        </VCardText>
+
+        <VCardActions class="pa-4 pt-0">
+          <VSpacer />
+          <VBtn
+            variant="tonal"
+            @click="showDeleteConfirm = false"
+          >
+            Cancel
+          </VBtn>
+          <VBtn
+            color="primary"
+            @click="confirmDelete"
+          >
+            Delete
+          </VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
+
+    <!-- Success Alert -->
+    <VSnackbar
+      v-model="showSuccessAlert"
+      :timeout="3000"
+    >
+      {{ successMessage }}
+    </VSnackbar>
+
+    <!-- Error Alert -->
+    <VSnackbar
+      v-model="showErrorAlert"
+      :timeout="5000"
+    >
+      {{ errorMessage }}
+    </VSnackbar>
   </div>
 </template>
 
 <style lang="scss" scoped>
-.v-data-table {
-  .v-data-table-header {
-    position: sticky;
-    z-index: 1;
-    inset-block-start: 0;
+.fixed-table {
+  inline-size: 100%;
+  table-layout: fixed;
+}
 
-    th {
-      font-size: 0.875rem;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
+// Target specific columns to reduce spacing
+::v-deep(.v-table) {
+  // SAVED column (6th column)
+  th:nth-child(6),
+  td:nth-child(6) {
+    inline-size: 45px !important;
+    padding-inline: 4px 0 !important;
+    text-align: center !important;
   }
 
-  .v-data-table__td {
-    &.text-center {
-      padding-inline: 8px;
+  // PENDING column (7th column)
+  th:nth-child(7),
+  td:nth-child(7) {
+    inline-size: 45px !important;
+    padding-inline: 4px 0 !important;
+    text-align: center !important;
+  }
+
+  // SEND TO TALLY column (8th column)
+  th:nth-child(8),
+  td:nth-child(8) {
+    inline-size: 45px !important;
+    padding-inline: 4px 0 !important;
+    text-align: center !important;
+  }
+
+  // Optional: Group these columns visually
+  th:nth-child(6),
+  th:nth-child(7),
+  th:nth-child(8) {
+    background-color: rgba(var(--v-theme-surface-variant), 0.5);
+  }
+
+  // TOTAL column (5th column)
+  th:nth-child(5),
+  td:nth-child(5) {
+    inline-size: 45px !important;
+    padding-inline: 4px 0 !important;
+    text-align: center !important;
+  }
+}
+
+.clickable-rows {
+  .clickable-row {
+    position: relative;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+      z-index: 1;
+      background-color: rgba(var(--v-theme-primary), 0.08) !important;
+      box-shadow: 0 4px 8px rgba(var(--v-theme-on-surface), 0.1);
+      transform: translateY(-1px);
+    }
+
+    &:active {
+      background-color: rgba(var(--v-theme-primary), 0.12) !important;
+      box-shadow: 0 2px 4px rgba(var(--v-theme-on-surface), 0.08);
+      transform: translateY(0);
     }
   }
 }
+
+/* Option 1: File name wraps onto multiple lines (default) */
+.file-name-cell {
+  hyphens: auto;
+  line-height: 1.2;
+  max-inline-size: 250px;
+  overflow-wrap: break-word;
+  white-space: normal;
+  word-break: break-word;
+  word-wrap: break-word;
+}
+
+/* Option 2: File name ellipsis styling (if you prefer a single-line truncated view)
+.file-name-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+*/
 
 .file-actions {
   opacity: 0;

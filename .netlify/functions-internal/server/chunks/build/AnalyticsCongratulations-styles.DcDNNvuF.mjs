@@ -1,0 +1,5 @@
+import { A as AnalyticsCongratulations_vue_vue_type_style_index_0_scoped_96c15101_lang } from './AnalyticsCongratulations-styles-1.mjs-BMnLf4OJ.mjs';
+
+const AnalyticsCongratulationsStyles_DcDNNvuF = [AnalyticsCongratulations_vue_vue_type_style_index_0_scoped_96c15101_lang, AnalyticsCongratulations_vue_vue_type_style_index_0_scoped_96c15101_lang];
+
+export { AnalyticsCongratulationsStyles_DcDNNvuF as default };

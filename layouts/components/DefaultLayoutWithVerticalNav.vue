@@ -5,10 +5,7 @@ import NavbarThemeSwitcher from '@/layouts/components/NavbarThemeSwitcher.vue'
 import NavItems from '@/layouts/components/NavItems.vue'
 import UserProfile from '@/layouts/components/UserProfile.vue'
 import VerticalNavLayout from '@layouts/components/VerticalNavLayout.vue'
-import { ref } from 'vue'
-
-const { companies } = useUserCompanies()
-
+import { ref, watchEffect } from 'vue'
 
 const isSidebarVisible = ref(true)
 
@@ -16,8 +13,17 @@ const toggleSidebar = () => {
   isSidebarVisible.value = !isSidebarVisible.value
 }
 
-// Companies dropdown data
-const selectedCompany = ref(null)
+// Get companies and selected company from our composable
+const { companies, selectedCompany, companyOptions } = useUserCompanies()
+
+// Watch for changes to selectedCompany to perform actions when it changes
+watchEffect(() => {
+  if (selectedCompany.value) {
+    console.log('Selected company changed:', selectedCompany.value)
+
+    // You can perform any global actions needed when company changes
+  }
+})
 </script>
 
 <template>
