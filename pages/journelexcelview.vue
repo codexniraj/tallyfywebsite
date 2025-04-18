@@ -356,6 +356,61 @@ const handleDeleteRow = async (rowId) => {
   }
 }
 
+// Handle selection of rows by reference number
+const handleSelectionChange = (newSelectedRows) => {
+  // If nothing has been selected or everything has been deselected, just update
+  if (newSelectedRows.length === 0 || selectedRows.value.length === 0) {
+    selectedRows.value = newSelectedRows;
+    return;
+  }
+
+  // Find which row was just selected (or deselected)
+  let changedRow;
+  if (newSelectedRows.length > selectedRows.value.length) {
+    // A row was added - find the new row
+    changedRow = newSelectedRows.find(row => 
+      !selectedRows.value.some(selected => selected.id === row.id)
+    );
+  } else {
+    // A row was removed - find the removed row
+    changedRow = selectedRows.value.find(row => 
+      !newSelectedRows.some(selected => selected.id === row.id)
+    );
+  }
+
+  if (!changedRow) {
+    // If we can't determine what changed, just update normally
+    selectedRows.value = newSelectedRows;
+    return;
+  }
+
+  const refNo = changedRow.reference_no;
+  if (!refNo) {
+    // If there's no reference number, just update normally
+    selectedRows.value = newSelectedRows;
+    return;
+  }
+
+  // Find all rows with the same reference number
+  const relatedRows = items.value.filter(item => 
+    item.reference_no === refNo && 
+    item.status?.toLowerCase() !== 'send to tally'
+  );
+
+  if (newSelectedRows.length > selectedRows.value.length) {
+    // Adding selection - select all related rows
+    const rowsToAdd = relatedRows.filter(row => 
+      !selectedRows.value.some(selected => selected.id === row.id)
+    );
+    selectedRows.value = [...selectedRows.value, ...rowsToAdd];
+  } else {
+    // Removing selection - deselect all related rows
+    selectedRows.value = selectedRows.value.filter(row => 
+      row.reference_no !== refNo
+    );
+  }
+}
+
 // Refresh data 
 const refreshData = async () => {
   error.value = ''
@@ -598,6 +653,7 @@ onMounted(() => {
         :searchable="settings.searchable"
         :items-per-page="settings.itemsPerPage"
         v-model:selected="selectedRows"
+        @update:selected="handleSelectionChange"
         @row-click="handleRowClick"
         @cell-click="handleCellClick"
       >
