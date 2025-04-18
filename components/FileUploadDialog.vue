@@ -21,7 +21,7 @@ const props = defineProps({
   },
   uploadApi: {
     type: String,
-    required: true,
+    required: false,
   },
   requiredFields: {
     type: Array,
@@ -37,7 +37,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:show', 'upload-success'])
+const emit = defineEmits(['update:show', 'upload-success', 'file-selected', 'confirm-upload'])
 
 const selectedFile = ref(null)
 const error = ref('')
@@ -77,6 +77,9 @@ const handleFileUpload = event => {
   }
 
   selectedFile.value = file
+  
+  // Emit the file-selected event to the parent component
+  emit('file-selected', file)
 }
 
 const uploadFile = async () => {
@@ -97,6 +100,12 @@ const uploadFile = async () => {
   if (!isPdf && !isExcel) {
     error.value = "Only Excel (.xls, .xlsx) and PDF (.pdf) files are allowed."
     
+    return
+  }
+  
+  // If uploadApi is not provided, emit the confirm-upload event and let the parent handle the upload
+  if (!props.uploadApi) {
+    emit('confirm-upload', selectedFile.value)
     return
   }
   
@@ -121,8 +130,9 @@ const uploadFile = async () => {
           return
         }
 
-        if (props.requiredFields.length > 0) {
-          const keys = Object.keys(json[0] || {})
+        if (props.requiredFields && Array.isArray(props.requiredFields) && props.requiredFields.length > 0) {
+          const firstRow = json[0] || {}
+          const keys = Object.keys(firstRow)
           const missingHeaders = props.requiredFields.filter(key => !keys.includes(key))
           
           if (missingHeaders.length > 0) {
@@ -157,9 +167,13 @@ const submitFile = async () => {
     formData.append('file', selectedFile.value)
     
     // Add any extra data from props
-    Object.entries(props.extraData).forEach(([key, value]) => {
-      formData.append(key, value)
-    })
+    if (props.extraData && typeof props.extraData === 'object') {
+      Object.entries(props.extraData).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, typeof value === 'object' ? JSON.stringify(value) : value.toString())
+        }
+      })
+    }
 
     const res = await fetch(props.uploadApi, {
       method: 'POST',
@@ -167,11 +181,11 @@ const submitFile = async () => {
     })
     
     if (!res.ok) {
-      const errorData = await res.json()
+      const errorData = await res.json().catch(() => ({ error: 'Upload failed' }))
       throw new Error(errorData.error || 'Upload failed')
     }
     
-    const data = await res.json()
+    const data = await res.json().catch(() => ({}))
     
     emit('upload-success', {
       file: selectedFile.value,

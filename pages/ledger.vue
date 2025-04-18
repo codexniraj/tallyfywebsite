@@ -33,13 +33,7 @@ const headers = [
     width: '40%',
     align: 'start',
   },
-  { 
-    title: 'DATE CREATED', 
-    key: 'date_created', 
-    sortable: true, 
-    width: '15%',
-    align: 'start',
-  },
+   
   { 
     title: 'TOTAL', 
     key: 'total', 
@@ -54,13 +48,7 @@ const headers = [
     align: 'start', 
     width: '70px',
   },
-  { 
-    title: 'PENDING', 
-    key: 'pending', 
-    sortable: true, 
-    align: 'start', 
-    width: '90px',
-  },
+   
   { 
     title: 'SEND TO TALLY', 
     key: 'sent_to_tally', 
@@ -68,13 +56,7 @@ const headers = [
     align: 'start', 
     width: '90px',
   },
-  { 
-    title: 'STATUS', 
-    key: 'status', 
-    sortable: true, 
-    align: 'start', 
-    width: '90px',
-  },
+  
 ]
 
 const uploadedFiles = ref([])
@@ -85,7 +67,7 @@ const uploading = ref(false)
 const maxFileSize = 50 * 1024 * 1024
 
 const compulsoryHeaders = [
-  "Name", "Group", "Opening Balance", "Dr/Cr"
+  "Name", "Group" 
 ]
 
 const fetchUploadedFiles = async () => {

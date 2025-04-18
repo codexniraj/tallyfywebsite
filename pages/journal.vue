@@ -103,15 +103,17 @@
     <FileUploadDialog
       v-model:show="showUploadDialog"
       title="Upload Journal"
-      upload-api="http://localhost:3001/api/uploadJournal"
-      :required-fields="compulsoryWithItems"
+      :required-fields="[]"
       :extra-data="{
         email: userEmail,
-        company: selectedCompany?.company_id || '',
-        withItems: true
+        company: selectedCompany && selectedCompany.company_id ? selectedCompany.company_id : '',
       }"
+      @file-selected="handleFileUpload"
+      @confirm-upload="uploadFile"
       @upload-success="handleUploadSuccess"
     />
+    
+
 
     <!-- Delete Confirmation Dialog -->
     <VDialog
@@ -146,38 +148,42 @@
 </template>
 
 <script setup>
-import { useAuthStore } from '@/auth'
-import { useUserCompanies } from '@/composables/useUserCompanies'
-import axios from 'axios'
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import * as XLSX from 'xlsx'
-import FileUploadDialog from '~/components/FileUploadDialog.vue'
+import { useAuthStore } from '@/auth';
+import { useUserCompanies } from '@/composables/useUserCompanies';
+import axios from 'axios';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import * as XLSX from 'xlsx';
+import FileUploadDialog from '~/components/FileUploadDialog.vue';
 
 definePageMeta({ layout: 'default' })
 
 const router = useRouter()
 
-// Get auth store and user companies
+// Auth store and user companies composable
 const authStore = useAuthStore()
 const { selectedCompany } = useUserCompanies()
 
-// Use the email from the auth store
+// User email computed property
 const userEmail = computed(() => authStore.userEmail)
+
+// Console logs for debugging email and selected company
+console.log('Initial userEmail:', userEmail.value)
+console.log('Initial selectedCompany:', selectedCompany.value)
 
 const headers = [
   { 
     title: 'SR.NO', 
     key: 'index', 
     sortable: false, 
-    width: '70px',
+    width: '50px',
     align: 'start'
   },
   { 
     title: 'FILE NAME', 
     key: 'uploaded_file', 
     sortable: true, 
-    width: '45%',
+    width: '60%',
     align: 'start'
   },
   { 
@@ -192,28 +198,28 @@ const headers = [
     key: 'total', 
     sortable: true, 
     align: 'start', 
-    width: '90px'
+    width: '50px'
   },
   { 
     title: 'SAVED', 
     key: 'saved', 
     sortable: true, 
     align: 'start', 
-    width: '90px'
+    width: '50px'
   },
   { 
     title: 'SEND TO TALLY', 
     key: 'synced', 
     sortable: true, 
     align: 'start', 
-    width: '120px'
+    width: '100px'
   },
   { 
-    title: 'ACTIONS', 
+    title: ' ', 
     key: 'actions', 
     sortable: false, 
     align: 'center',
-    width: '80px'
+    width: '5px'
   }
 ]
 
@@ -225,6 +231,7 @@ const selectedFile = ref(null)
 const maxFileSize = 50 * 1024 * 1024
 const deleteDialog = ref(false)
 const tempTableToDelete = ref('')
+ 
 
 const compulsoryWithoutItems = [
   "Reference No", "Date", "Particulars", "Dr/Cr", "Amount"
@@ -232,22 +239,53 @@ const compulsoryWithoutItems = [
 const compulsoryWithItems = [
   "Reference No", "Date", "Particulars", "Name Of Item", "Quantity", "Rate", "Dr/Cr", "Amount"
 ]
+// const validateExcelHeaders = (json) => {
+//   const keys = Object.keys(json[0] || {});
+//   const isWithItems = keys.includes("Name Of Item");
+  
+//   const compulsory = isWithItems ? compulsoryWithItems : compulsoryWithoutItems;
+//   const missingHeaders = compulsory.filter(key => !keys.includes(key));
+  
+//   return { isValid: missingHeaders.length === 0, missingHeaders };
+// };
+
+// // Usage example
+// const reader = new FileReader();
+// reader.onload = (e) => {
+//   const data = new Uint8Array(e.target.result);
+//   const workbook = XLSX.read(data, { type: 'array' });
+//   const sheet = workbook.Sheets[workbook.SheetNames[0]];
+//   const json = XLSX.utils.sheet_to_json(sheet, {
+//     defval: "",
+//     raw: false
+//   });
+
+//   const validation = validateExcelHeaders(json);
+
+//   if (!validation.isValid) {
+//     error.value = `Missing compulsory headers: ${validation.missingHeaders.join(', ')}`;
+//     return;
+//   }
+// }
 
 
 // Function to fetch uploaded files data
 const fetchUploadedFiles = async () => {
-  if (!userEmail.value || !selectedCompany.value) return
+  console.log('Fetching uploaded files...')
+  if (!userEmail.value || !selectedCompany.value?.company_id) {
+    console.error('Cannot fetch: Missing userEmail or selectedCompany.')
+    return
+  }
+
+  const companyId = selectedCompany.value.company_id
+  console.log(`Fetching files with email=${userEmail.value}, company=${companyId}`)
   
-  try {
-    const companyId = selectedCompany.value.company_id || ''
-    
+  try {   
     const filesRes = await axios.get("http://3.108.64.167:3001/api/getUserJournelUploads", {
-      params: { 
-        email: userEmail.value, 
-        company: companyId
-      }
+      params: { email: userEmail.value, company: companyId }
     })
-    
+    console.log('Fetched files:', filesRes.data)
+
     const filesWithCounts = await Promise.all(
       filesRes.data.map(async (file, index) => {
         try {
@@ -263,11 +301,8 @@ const fetchUploadedFiles = async () => {
             dataRes.data.forEach(row => {
               if (row.status) {
                 const status = row.status.toLowerCase()
-                if (status === 'saved') {
-                  savedRows++
-                } else if (status === 'sent_to_tally' || status === 'send to tally') {
-                  sentToTallyRows++
-                }
+                if (status === 'saved') savedRows++
+                if (['sent_to_tally', 'send to tally'].includes(status)) sentToTallyRows++
               }
             })
           }
@@ -286,24 +321,28 @@ const fetchUploadedFiles = async () => {
           return {
             ...file,
             index: index + 1,
-            rowCounts: {
-              total: 0,
-              saved: 0,
-              sentToTally: 0
-            }
+            rowCounts: { total: 0, saved: 0, sentToTally: 0 }
           }
         }
       })
     )
-    
-    uploadedFiles.value = filesWithCounts
+
+    uploadedFiles.value = filesWithCounts.map((item, idx) => ({
+      raw: item,
+      index: idx + 1
+    }))
+
+    console.log('Processed uploaded files:', uploadedFiles.value)
+
   } catch (err) {
     console.error("Failed to fetch uploaded files", err)
   }
 }
 
+
 // Fetch data when component mounts
 onMounted(() => {
+  console.log('Journal.vue mounted')
   fetchUploadedFiles()
 })
 
@@ -361,18 +400,19 @@ const uploadFile = async () => {
     }
 
     try {
-      uploading.value = true
+      uploading.value = true;
       const res = await axios.post("http://3.108.64.167:3001/api/uploadJournal", {
         email: userEmail.value,
         company: selectedCompany.value.company_id || '',
         data: json,
         withItems: isWithItems,
         uploadedFileName: selectedFile.value.name
-      })
+      });
 
-      uploadedFiles.value = [
-        ...uploadedFiles.value,
-        {
+      const newIndex = uploadedFiles.value.length + 1;
+
+      uploadedFiles.value.push({
+        raw: {
           uploaded_file: selectedFile.value.name,
           created_at: new Date().toISOString(),
           temp_table: res.data.table,
@@ -381,15 +421,18 @@ const uploadFile = async () => {
             total: 0,
             saved: 0,
             sentToTally: 0
-          }
-        }
-      ]
-      showUploadDialog.value = false
-      selectedFile.value = null
+          },
+          index: newIndex
+        },
+        index: newIndex
+      });
+
+      showUploadDialog.value = false;
+      selectedFile.value = null;
     } catch (err) {
-      error.value = err.response?.data?.error || "Failed to upload data."
+      error.value = err.response?.data?.error || "Failed to upload data.";
     } finally {
-      uploading.value = false
+      uploading.value = false;
     }
   }
 
@@ -413,10 +456,23 @@ const deleteFile = async () => {
   }
 }
 
-const handleViewUpload = (file) => {
-  sessionStorage.setItem('tempTable', file.temp_table)
-  sessionStorage.setItem('uploadMeta', JSON.stringify({ invalidLedgers: file.invalid_ledgers || [] }))
-  router.push('/excel-view')
+const handleViewUpload = (item) => {
+  console.log('Clicked on file row:', item)
+  
+  // Store necessary data in sessionStorage
+  sessionStorage.setItem('userEmail', userEmail.value)
+  sessionStorage.setItem('selectedCompany', selectedCompany.value?.company_id || '')
+  sessionStorage.setItem('tempTable', item.temp_table)
+  sessionStorage.setItem('uploadMeta', JSON.stringify({ invalidLedgers: item.invalid_ledgers || [] }))
+  
+  console.log('Stored in sessionStorage:', {
+    userEmail: userEmail.value,
+    selectedCompany: selectedCompany.value?.company_id || '',
+    tempTable: item.temp_table
+  })
+  
+  // Navigate to journal excel view
+  router.push('/journelexcelview')
 }
 
 const handleUploadSuccess = (result) => {

@@ -222,6 +222,13 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue";
       badgeClass: 'bg-light-primary text-primary',
     }"
   />
+  <VerticalNavLink
+    :item="{
+      title: 'Excel View Demo',
+      icon: 'bx-table',
+      to: '/excel-view-demo',
+    }"
+  />
 
   <VerticalNavLink
     :item="{
@@ -312,6 +319,20 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue";
       title: 'Tables',
       icon: 'bx-table',
       to: '/tables',
+    }"
+  />
+  <VerticalNavLink
+    :item="{
+      title: 'Data Tables',
+      to: 'forms-tables-datatables',
+      icon: 'bx-table',
+    }"
+  />
+  <VerticalNavLink
+    :item="{
+      title: 'Excel View Demo',
+      to: 'excel-view-demo',
+      icon: 'bx-spreadsheet',
     }"
   />
 
