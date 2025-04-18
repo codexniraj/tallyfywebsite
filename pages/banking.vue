@@ -135,7 +135,7 @@ const headers = [
     title: 'TOTAL', 
     key: 'total', 
     sortable: true, 
-    align: 'start',
+    align: 'start', 
     width: '50px',
     padding: '0px',
   },
@@ -143,7 +143,7 @@ const headers = [
     title: 'SAVED', 
     key: 'saved', 
     sortable: true, 
-    align: 'start',
+    align: 'start', 
     width: '50px',
     paddingRight: '0px',
     paddingLeft: '0px',
@@ -152,7 +152,7 @@ const headers = [
     title: 'PENDING', 
     key: 'synced', 
     sortable: true, 
-    align: 'start',
+    align: 'start', 
     width: '10px',
     paddingRight: '0px',
     paddingLeft: '0px',
@@ -161,7 +161,7 @@ const headers = [
     title: 'SEND DATA', 
     key: 'synced', 
     sortable: true, 
-    align: 'start',
+    align: 'start', 
     width: '20px',
     paddingRight: '0px',
     paddingLeft: '0px',
@@ -254,7 +254,7 @@ const uploadApiUrl = computed(() => {
   return `http://3.108.64.167:3001/api/uploadBankingFile?email=${encodeURIComponent(userEmail.value)}&company=${encodeURIComponent(companyId)}`
 })
 
-// Update the extra data to include the selected bank
+// Update the extra data to include the selected bank and file details
 const uploadExtraData = computed(() => {
   // Find the selected bank object to use the original bank name
   const selectedBankObj = banks.value.find(bank => bank.value === selectedBank.value)
@@ -264,19 +264,86 @@ const uploadExtraData = computed(() => {
     email: userEmail.value,
     company: selectedCompany.value?.company_id || '',
     bank: bankName, // Use the original bank name without "Bank" suffix
+    uploaded_file: 'uploaded.pdf', // Default filename for PDF uploads
+    user_group: 'gold', // Default user group for all uploads
+    user_id: authStore.userId || userEmail.value, // Use userId if available, fallback to email
+    // Generate a unique file_id
+    file_id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
   }
 })
 
 // Handle successful upload
 const handleUploadSuccess = data => {
-  console.log('Upload success:', data)
+  console.log('Upload success event received:', data)
+
+  // Log detailed information about the uploaded file
+  console.log('Uploaded File Details:', {
+    filename: data.file.name,
+    fileSize: `${Math.round(data.file.size / 1024)} KB`,
+    fileType: data.file.type,
+    tempTableName: data.tempTableName || 'N/A',
+    responseData: data.response,
+    isProcessing: data.isProcessing,
+  })
+
+  // For PDF uploads in processing state, add a temporary row to the table
+  const isPdf = data.file.name.toLowerCase().endsWith('.pdf')
+  
+  // If this is a processing status notification (table created, but PDF not yet processed)
+  if (isPdf && data.isProcessing && data.tempTableName) {
+    console.log('Adding PDF processing row to table with temp table:', data.tempTableName)
+    
+    // Create a new row with processing status
+    const newRow = {
+      raw: {
+        id: data.tempTableName,
+        temp_table: data.tempTableName,
+        uploaded_file: data.file.name,
+        bank_name: uploadExtraData.value.bank || '-',
+        status: 'processing',
+        rowCounts: {
+          total: 0,
+          saved: 0,
+          sentToTally: 0,
+        },
+      },
+      index: uploadedFiles.value.length + 1,
+    }
+    
+    // Add the new row to the table data at the beginning
+    uploadedFiles.value = [newRow, ...uploadedFiles.value]
+    
+    // Show success message
+    showSuccessAlert.value = true
+    successMessage.value = `PDF Processing - ${data.file.name}`
+    
+    // Clear the success message after a delay
+    setTimeout(() => {
+      showSuccessAlert.value = false
+    }, 3000)
+    
+    return // Don't refresh the table data as we just manually added the row
+  }
+
+  // For PDF uploads, log the specific response format
+  if (isPdf) {
+    console.log('PDF Processing Response:', {
+      tempTableName: data.tempTableName,
+      status: data.response.status || 'unknown',
+      message: data.response.message || 'No message returned',
+      processedData: data.response.data || {},
+      processingTime: data.response.processing_time || 'unknown',
+    })
+  }
 
   // Refresh the table data
   fetchTempTables()
   
   // Show success message
   showSuccessAlert.value = true
-  successMessage.value = 'File successfully uploaded'
+  successMessage.value = isPdf 
+    ? `PDF successfully processed with temp table: ${data.tempTableName || 'unknown'}`
+    : 'File successfully uploaded'
   
   // Clear the success message after a delay
   setTimeout(() => {
@@ -429,13 +496,68 @@ const errorMessage = ref('')
                   {{ item.raw.statement_date_range || '-' }}
                 </template>
                 <template v-else-if="column.key === 'total'">
-                  {{ item.raw.rowCounts?.total || 0 }}
+                  <div
+                    v-if="item.raw.status === 'processing'"
+                    class="text-warning text-center"
+                  >
+                    ---
+                  </div>
+                  <template v-else>
+                    {{ item.raw.rowCounts?.total || 0 }}
+                  </template>
                 </template>
                 <template v-else-if="column.key === 'saved'">
-                  {{ item.raw.rowCounts?.saved || 0 }}
+                  <div
+                    v-if="item.raw.status === 'processing'"
+                    class="text-warning text-center"
+                  >
+                    ---
+                  </div>
+                  <template v-else>
+                    {{ item.raw.rowCounts?.saved || 0 }}
+                  </template>
                 </template>
                 <template v-else-if="column.key === 'synced'">
-                  {{ item.raw.rowCounts?.sentToTally || 0 }}
+                  <!-- Special handling for the STATUS column (last one using synced key) -->
+                  <template v-if="column.title === 'STATUS'">
+                    <div 
+                      class="d-flex align-center justify-center"
+                      :class="[
+                        item.raw.status === 'processing' ? 'processing-indicator' : ''
+                      ]"
+                    >
+                      <template v-if="item.raw.status === 'processing'">
+                        <VIcon
+                          icon="bx-loader bx-spin"
+                          color="warning"
+                          size="18"
+                          class="me-1"
+                        />
+                        <span class="text-warning">Processing</span>
+                      </template>
+                      <template v-else>
+                        <VIcon
+                          icon="bx-check-circle"
+                          color="success"
+                          size="18"
+                          class="me-1"
+                        />
+                        <span class="text-success">Completed</span>
+                      </template>
+                    </div>
+                  </template>
+                  <!-- For PENDING and SEND DATA columns -->
+                  <template v-else>
+                    <div
+                      v-if="item.raw.status === 'processing'"
+                      class="text-warning text-center"
+                    >
+                      ---
+                    </div>
+                    <template v-else>
+                      {{ item.raw.rowCounts?.sentToTally || 0 }}
+                    </template>
+                  </template>
                 </template>
                 <template v-else-if="column.key === 'index'">
                   {{ item.index }}
@@ -564,14 +686,14 @@ const errorMessage = ref('')
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="scss">
 .fixed-table {
   inline-size: 100%;
   table-layout: fixed;
 }
 
 // Target specific columns to reduce spacing
-::v-deep(.v-table) {
+.v-table {
   // SAVED column (6th column)
   th:nth-child(6),
   td:nth-child(6) {
@@ -676,5 +798,17 @@ const errorMessage = ref('')
       transform: none;
     }
   }
+}
+
+// Add style for the processing indicator
+.processing-indicator {
+  display: flex;
+  justify-content: center;
+  border-radius: 20px;
+  background-color: rgba(var(--v-theme-warning), 0.1);
+  inline-size: 100%;
+  padding-block: 2px;
+  padding-inline: 4px;
+  white-space: nowrap;
 }
 </style>
