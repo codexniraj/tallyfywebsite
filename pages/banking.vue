@@ -583,18 +583,50 @@ const errorMessage = ref('')
       </VCardText>
     </VCard>
 
-    <!-- File Upload Dialog -->
+    <!-- File Upload Dialog - Using the new component -->
     <FileUploadDialog
       v-model:show="showUploadDialog"
-      title="Upload Banking Data"
-      upload-api="http://3.108.64.167:3001/api/uploadBanking"
-      :required-fields="compulsoryHeaders"
-      :extra-data="{
-        email: userEmail,
-        company: selectedCompany && selectedCompany.company_id ? selectedCompany.company_id : ''
-      }"
+      title="Upload Banking Statement"
+      :upload-api="uploadApiUrl"
+      :extra-data="uploadExtraData"
+      :required-fields="['Date', 'Description', 'Debit', 'Credit', 'Balance']"
+      accepted-formats=".xls,.xlsx,.pdf"
       @upload-success="handleUploadSuccess"
-    />
+    >
+      <template #bank-selection>
+        <div class="bank-selection-slot-content">
+          <h3 class="text-subtitle-1 font-weight-medium mb-2">
+            Select Bank <span class="text-error">*</span>
+          </h3>
+          <VSelect
+            v-model="selectedBank"
+            :items="banks"
+            label="Choose your bank"
+            placeholder="Select a bank"
+            variant="outlined"
+            color="primary"
+            class="mb-2"
+            :loading="loadingBanks"
+            :disabled="loadingBanks || banks.length === 0"
+            :rules="[v => !!v || 'Bank selection is required']"
+            :hint="banks.length === 0 && !loadingBanks ? 'No banks available for this company' : ''"
+            persistent-hint
+            required
+          />
+          <div
+            v-if="!selectedBank"
+            class="text-caption text-error mb-4"
+          >
+            <VIcon
+              icon="bx-error-circle"
+              size="14"
+              class="me-1"
+            />
+            You must select a bank before uploading a statement
+          </div>
+        </div>
+      </template>
+    </FileUploadDialog>
 
     <!-- Delete Confirmation Dialog -->
     <VDialog
