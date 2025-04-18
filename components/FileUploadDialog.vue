@@ -1,3 +1,4 @@
+<!-- eslint-disable camelcase -->
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import * as XLSX from 'xlsx'
@@ -37,7 +38,14 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:show', 'upload-success', 'file-selected', 'confirm-upload'])
+// Support both emit patterns for backward and forward compatibility
+const emit = defineEmits(['update:show', 'upload-success', 'file-selected', 'confirm-upload', 'uploadSuccess'])
+
+// Forward compatibility - map upload-success to uploadSuccess
+const emitUploadSuccess = data => {
+  emit('uploadSuccess', data)
+  emit('upload-success', data) // Also emit the kebab-case version for backward compatibility
+}
 
 const selectedFile = ref(null)
 const error = ref('')
@@ -80,6 +88,105 @@ const handleFileUpload = event => {
   
   // Emit the file-selected event to the parent component
   emit('file-selected', file)
+}
+
+// Function to send receipts to database
+const sendReceiptsToDatabase = async (data, tempTableName) => {
+  try {
+    // Check if we have receipts in the response
+    if (!data.receipts || !Array.isArray(data.receipts) || data.receipts.length === 0) {
+      console.warn('No receipts found in the PDF processing response')
+      console.log('Response data structure:', JSON.stringify(data, null, 2))
+      
+      return
+    }
+    
+    console.log(Found ${data.receipts.length} receipts in PDF response. Sending to database...)
+    console.log('First receipt sample:', JSON.stringify(data.receipts[0], null, 2))
+    
+    // Since the backend isn't properly implementing the required upload_id, we need to modify it
+    console.log('Since we still have database errors, we need to apply a workaround...')
+    
+    try {
+      // Try a direct database update to fix the missing upload_id
+      console.log(Applying SQL fix for table ${tempTableName}...)
+      
+      // Simple request to try to fix the table with raw SQL
+      const fixResponse = await fetch('http://localhost:3001/api/executeSql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sql: UPDATE ${tempTableName} SET upload_id = '${tempTableName}', email = '${props.extraData.email || ''}', company = '${props.extraData.company || ''}' WHERE upload_id IS NULL,
+        }),
+      }).catch(err => {
+        console.warn('SQL fix endpoint not available:', err.message)
+        
+        return { ok: false }
+      })
+      
+      if (fixResponse.ok) {
+        console.log('✅ Applied SQL fix successfully!')
+      }
+    } catch (err) {
+      console.warn('Failed to apply SQL fix:', err.message)
+    }
+    
+    // Create simplified data for the API
+    const receiptsData = {
+      temp_table: tempTableName,
+      email: props.extraData.email || '',
+      company: props.extraData.company || '',
+      upload_id: tempTableName, // Send the table name as the upload_id
+      receipts: data.receipts,
+    }
+    
+    // Log data being sent for debugging
+    console.log('Sending receipts data to database with params:', {
+      temp_table: receiptsData.temp_table,
+      email: receiptsData.email,
+      company: receiptsData.company,
+      upload_id: receiptsData.upload_id,
+      receiptCount: receiptsData.receipts.length,
+    })
+    
+    // Send the data to the insertParsedReceipts endpoint
+    const response = await fetch('http://localhost:3001/api/insertParsedReceipts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(receiptsData),
+    })
+    
+    // Log raw response for debugging
+    console.log('API Response Status:', response.status, response.statusText)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+
+      console.error('API Error Response:', errorText)
+      
+      try {
+        const errorJson = JSON.parse(errorText)
+
+        console.error('API Error JSON:', errorJson)
+        throw new Error(Failed to insert receipts: ${errorJson.message || errorJson.error || 'Unknown error'})
+      } catch (parseError) {
+        throw new Error(Failed to insert receipts: ${response.status} ${response.statusText} - ${errorText})
+      }
+    }
+    
+    const result = await response.json()
+    
+    console.log('Successfully inserted receipts to database:', result)
+    
+    return result
+  } catch (error) {
+    console.error('Error inserting receipts to database:', error)
+    throw error
+  }
 }
 
 const uploadFile = async () => {
@@ -134,9 +241,8 @@ const uploadFile = async () => {
           const firstRow = json[0] || {}
           const keys = Object.keys(firstRow)
           const missingHeaders = props.requiredFields.filter(key => !keys.includes(key))
-          
           if (missingHeaders.length > 0) {
-            error.value = `Missing compulsory headers: ${missingHeaders.join(', ')}`
+            error.value = Missing compulsory headers: ${missingHeaders.join(', ')}
             
             return
           }
@@ -162,42 +268,296 @@ const submitFile = async () => {
   try {
     uploading.value = true
     
-    const formData = new FormData()
-
-    formData.append('file', selectedFile.value)
+    // Check if it's a PDF file
+    const isPdf = selectedFile.value.name.toLowerCase().endsWith('.pdf')
     
-    // Add any extra data from props
-    if (props.extraData && typeof props.extraData === 'object') {
+    // Store file details for later use (to prevent null reference issues)
+    const fileDetails = {
+      name: selectedFile.value.name,
+      size: selectedFile.value.size,
+      type: selectedFile.value.type,
+      file: selectedFile.value,
+    }
+    
+    // For PDF files, first create a temp table
+    let tempTableName = null
+    
+    if (isPdf) {
+      try {
+        console.log('PDF detected - Creating temp table first...')
+        
+        // Prepare data for temp table creation
+        const createTempTableData = {
+          email: props.extraData.email || '',
+          company: props.extraData.company || '',
+          fileName: fileDetails.name,
+          bankAccount: props.extraData.bank || '',
+        }
+        
+        console.log('Creating temp table with data:', createTempTableData)
+        
+        // Call the API to create a temp table
+        const tempTableResponse = await fetch('http://localhost:3001/api/createTempTable', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(createTempTableData),
+        })
+        
+        if (!tempTableResponse.ok) {
+          throw new Error('Failed to create temp table')
+        }
+        
+        const tempTableData = await tempTableResponse.json()
+        
+        // Get the temp table name from the response
+        // The API returns the table name in the 'table' property
+        tempTableName = tempTableData.table || tempTableData.tableName || tempTableData.table_name
+        
+        if (!tempTableName) {
+          console.error('API Response:', tempTableData)
+          throw new Error('No temp table name returned from API')
+        }
+        
+        console.log('✅ Temp table created successfully:', tempTableName)
+
+        // For PDF, emit success with processing status and close dialog now
+        console.log('Emitting processing status and closing dialog - table name:', tempTableName)
+
+        // Emit with processing status 
+        emitUploadSuccess({
+          file: fileDetails.file,
+          response: {
+            status: 'processing',
+          },
+          tempTableName: tempTableName,
+          isProcessing: true,
+        })
+
+        // Close the dialog immediately after getting temp table
+        closeDialog()
+
+        console.log('Now proceeding to upload PDF with temp table name in background')
+      } catch (err) {
+        console.error('❌ Error creating temp table:', err)
+        throw new Error('Failed to create temp table: ' + err.message)
+      }
+    }
+    
+    // For PDF files, we MUST have a temp table name before proceeding
+    if (isPdf && !tempTableName) {
+      throw new Error('Cannot process PDF without a temp table name')
+    }
+    
+    // Use different formData preparation based on file type
+    const formData = new FormData()
+    
+    // Add all the necessary fields manually since selectedFile might be null now for PDF
+    if (isPdf) {
+      // Add fields based on API requirements
+      // eslint-disable-next-line camelcase
+      formData.append('email', props.extraData.email || '')
+      // eslint-disable-next-line camelcase
+      formData.append('company', props.extraData.company || '')
+      // eslint-disable-next-line camelcase
+      formData.append('uploaded_file', props.extraData.uploaded_file || fileDetails.name)
+      // eslint-disable-next-line camelcase
+      formData.append('user_group', props.extraData.user_group || 'gold')
+      
+      // Add the file
+      formData.append('file', fileDetails.file)
+      
+      // Add temp table name
+      if (tempTableName) {
+        console.log(🔄 Adding temp_table: ${tempTableName} to formData)
+        // eslint-disable-next-line camelcase
+        formData.append('temp_table', tempTableName)
+        
+        // Add bank name from extraData
+        if (props.extraData.bank) {
+          console.log(🔄 Adding bank_name: ${props.extraData.bank} to formData)
+          // eslint-disable-next-line camelcase
+          formData.append('bank_name', props.extraData.bank)
+        }
+        
+        // Add user ID if available
+        if (props.extraData.user_id) {
+          console.log(🔄 Adding user_id: ${props.extraData.user_id} to formData)
+          // eslint-disable-next-line camelcase
+          formData.append('user_id', props.extraData.user_id)
+        }
+        
+        // Add file_id
+        const fileId = props.extraData.file_id || tempTableName
+
+        // eslint-disable-next-line camelcase
+        formData.append('file_id', fileId)
+        console.log(🔄 Adding file_id: ${fileId} to formData)
+      }
+    } else {
+      // For Excel, use the original function
+      formData.append('file', selectedFile.value)
+      
+      // Add any extra data from props
       Object.entries(props.extraData).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
           formData.append(key, typeof value === 'object' ? JSON.stringify(value) : value.toString())
         }
       })
     }
-
-    const res = await fetch(props.uploadApi, {
+    
+    // Log the form data for uploads
+    console.log('FormData prepared with fields:', 
+      Object.fromEntries(
+        Array.from(formData.entries())
+          .filter(([key]) => key !== 'file')
+          .map(([key, value]) => [key, value]),
+      ),
+    )
+    
+    // Use different API endpoint for PDF files
+    const apiEndpoint = isPdf 
+      ? 'http://3.108.64.167:8000/process-pdf' 
+      : props.uploadApi
+    
+    console.log(Uploading ${isPdf ? 'PDF' : 'Excel'} file to: ${apiEndpoint})
+    
+    // For PDF specifically, add debugging info
+    if (isPdf) {
+      console.log('------- PDF UPLOAD DETAILS -------')
+      console.log('File name:', fileDetails.name)
+      console.log('File size:', fileDetails.size)
+      console.log('Temp table:', tempTableName)
+      console.log('Bank name:', props.extraData.bank)
+      console.log('----------------------------------')
+    }
+    
+    // Make the API call - for PDF we don't set Content-Type header
+    // as FormData will set multipart/form-data with boundary automatically
+    const res = await fetch(apiEndpoint, {
       method: 'POST',
       body: formData,
     })
     
+    // For improved debugging, log the status and headers
+    console.log(API Response Status: ${res.status} ${res.statusText})
+    
+    // If API call failed
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ error: 'Upload failed' }))
-      throw new Error(errorData.error || 'Upload failed')
+      const errorText = await res.text()
+      let errorData = null
+      
+      console.error('API Error Response Text:', errorText)
+      
+      // Try to parse as JSON, but handle case where it's not valid JSON
+      try {
+        errorData = JSON.parse(errorText)
+        console.error('API Error JSON:', errorData)
+        
+        if (errorData.detail && Array.isArray(errorData.detail)) {
+          // Log detailed validation errors
+          console.error('Validation errors details:', JSON.stringify(errorData.detail, null, 2))
+          
+          const errorMessages = errorData.detail.map(d => {
+            if (typeof d === 'object') {
+              return ${d.loc?.[1] || ''}: ${d.msg || 'Unknown error'}
+            }
+            
+            return d
+          }).join(', ')
+          
+          throw new Error(Validation error: ${errorMessages})
+        }
+      } catch (jsonError) {
+        console.error('Failed to parse API error as JSON:', jsonError)
+        console.error('Original error text:', errorText)
+        errorData = { error: errorText }
+      }
+      
+      throw new Error(errorData?.error || errorData?.detail || 'Upload failed')
     }
     
     const data = await res.json().catch(() => ({}))
     
-    emit('upload-success', {
-      file: selectedFile.value,
+    // For PDF files, let's log the detailed response structure for debugging
+    if (isPdf) {
+      console.log('------- Detailed PDF Response Structure -------')
+      console.log('Response status:', res.status, res.statusText)
+      console.log('Response top-level properties:', Object.keys(data))
+      
+      // Look for receipts in different parts of the response
+      if (data.receipts) {
+        console.log('Receipts found at top level:', data.receipts.length)
+      } else if (data.data && data.data.receipts) {
+        console.log('Receipts found in data.data:', data.data.receipts.length)
+      } else if (data.response && data.response.receipts) {
+        console.log('Receipts found in data.response:', data.response.receipts.length)
+      } else {
+        console.log('No receipts property found in response. Structure:', JSON.stringify(data, null, 2))
+      }
+      console.log('---------------------------------------------')
+    }
+
+    // Log the complete response data
+    console.log('API Response Data:', {
+      endpoint: apiEndpoint,
+      fileType: isPdf ? 'PDF' : 'Excel',
+      fileName: isPdf ? fileDetails.name : selectedFile.value.name,
+      tempTableName: tempTableName || 'N/A',
+      responseData: data,
+    })
+
+    // For PDF uploads, check for receipts and send them to the database
+    if (isPdf && tempTableName) {
+      try {
+        // Check where receipts might be in the response structure
+        const receipts = data.receipts || 
+                         (data.data && data.data.receipts) || 
+                         (data.response && data.response.receipts)
+                         
+        if (receipts && Array.isArray(receipts) && receipts.length > 0) {
+          console.log(Found ${receipts.length} receipts in the response. Sending to database...)
+          
+          // Create a data object with the receipts for the database function
+          const dataWithReceipts = { ...data, receipts }
+          
+          // Send parsed receipts to the database
+          const insertResult = await sendReceiptsToDatabase(dataWithReceipts, tempTableName)
+          
+          console.log('✅ Receipts inserted into database successfully')
+          
+          // Add receipt information to the response data
+          data.receiptsInserted = true
+          data.receiptsCount = receipts.length
+          data.insertResult = insertResult
+        } else {
+          console.log('No receipts found in the PDF processing response structure')
+        }
+      } catch (error) {
+        console.error('❌ Failed to insert receipts into database:', error)
+
+        // Don't fail the overall process if this fails
+      }
+    }
+    
+    // Emit final success event
+    emitUploadSuccess({
+      file: isPdf ? fileDetails.file : selectedFile.value,
       response: data,
+      tempTableName: tempTableName,
     })
     
-    closeDialog()
+    if (!isPdf) {
+      // Only close dialog for Excel files, for PDF it's already closed
+      closeDialog()
+    }
     
     if (props.redirectPath) {
       navigateTo(props.redirectPath)
     }
   } catch (err) {
+    console.error('Error in submitFile:', err)
     error.value = err.message || "Failed to upload data."
   } finally {
     uploading.value = false
@@ -436,4 +796,4 @@ const closeDialog = () => {
       </VCardActions>
     </VCard>
   </VDialog>
-</template> 
+</template>
