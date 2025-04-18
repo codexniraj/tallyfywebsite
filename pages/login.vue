@@ -1,6 +1,5 @@
 <script setup>
 import AuthProvider from '@/views/pages/authentication/AuthProvider.vue'
-import logo from '@images/logo.svg?raw'
 import authV1BottomShape from '@images/svg/auth-v1-bottom-shape.svg?url'
 import authV1TopShape from '@images/svg/auth-v1-top-shape.svg?url'
 import { AuthenticationDetails, CognitoUser, CognitoUserPool } from 'amazon-cognito-identity-js'
@@ -134,16 +133,21 @@ definePageMeta({ layout: 'blank' })
           >
             <div
               class="d-flex"
-              v-html="logo"
-            />
+            >
+              <img
+                src="/favicon.ico"
+                alt="Logo"
+                style=" block-size: 24px;inline-size: 24px;"
+              >
+            </div>
             <h1 class="app-logo-title">
-              sneat
+              TallyFy.AI
             </h1>
           </NuxtLink>
         </VCardItem>
         <VCardText>
           <h4 class="text-h4 mb-1">
-            Welcome to Sneat! 👋🏻
+            Welcome to TallyFy.AI! 👋🏻
           </h4>
           <p class="mb-0">
             Please sign-in to your account and start the adventure

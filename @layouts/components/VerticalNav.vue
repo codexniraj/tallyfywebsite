@@ -1,7 +1,6 @@
 <script setup>
 import { PerfectScrollbar } from 'vue3-perfect-scrollbar'
 import { useDisplay } from 'vuetify'
-import logo from '@images/logo.svg?raw'
 
 const props = defineProps({
   tag: {
@@ -62,11 +61,16 @@ const handleNavScroll = evt => {
         >
           <div
             class="d-flex"
-            v-html="logo"
-          />
+          >
+            <img
+              src="/favicon.ico"
+              alt="Logo"
+              class="app-logo-image"
+            >
+          </div>
 
           <h1 class="leading-normal">
-            sneat
+            TallyFy.AI
           </h1>
         </NuxtLink>
       </slot>
@@ -97,11 +101,16 @@ const handleNavScroll = evt => {
   align-items: center;
   column-gap: 0.75rem;
 
+  .app-logo-image {
+    block-size: 50px;
+    inline-size: 50px;
+  }
+
   .app-logo-title {
     font-size: 1.25rem;
     font-weight: 500;
     line-height: 1.75rem;
-    text-transform: uppercase;
+    text-transform: none;
   }
 }
 </style>
