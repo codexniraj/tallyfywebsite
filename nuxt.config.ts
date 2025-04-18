@@ -12,7 +12,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       titleTemplate: '%s - NuxtJS Admin Template',
-      title: 'Sneat',
+      title: 'TallyFy.AI',
 
       link: [{
         rel: 'icon',

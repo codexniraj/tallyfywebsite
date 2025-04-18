@@ -20,9 +20,9 @@
     >
       <VCard>
         <VImg src="https://cdn.themeselection.com/ts-assets/sneat/sneat-vuetify-nuxtjs-admin-template-free/banner/banner.png" />
-        <VCardTitle>Sneat - Vuetify Admin Template</VCardTitle>
+        <VCardTitle>TallyFy.AI - Vuetify Admin Template</VCardTitle>
         <VCardText>
-          Sneat Admin is the most developer friendly & highly customisable Admin Dashboard Template based on Vuetify.
+          TallyFy.AI Admin is the most developer friendly & highly customisable Admin Dashboard Template based on Vuetify.
         </VCardText>
         <VCardText>Click on below button to explore PRO version.</VCardText>
         <VCardText>

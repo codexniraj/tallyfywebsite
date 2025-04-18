@@ -22,7 +22,7 @@ const props = defineProps({
   },
   uploadApi: {
     type: String,
-    required: true,
+    required: false,
   },
   requiredFields: {
     type: Array,
@@ -38,12 +38,22 @@ const props = defineProps({
   },
 })
 
+// define all the emitted event names, old and new
 // eslint-disable-next-line camelcase
-const emit = defineEmits(['update:show', 'uploadSuccess'])
+const emit = defineEmits([
+  'update:show',
+  'upload‑success',   // old style
+  'uploadSuccess',    // new camelCase
+  'file‑selected',
+  'confirm‑upload'
+])
 
-// Forward compatibility - map upload-success to uploadSuccess
+// For backward/forward compatibility, map the old event to the new
 const emitUploadSuccess = data => {
+  // fire the new camelCase event
   emit('uploadSuccess', data)
+  // also fire the old‑style dash event if any listener still uses it
+  emit('upload‑success', data)
 }
 
 const selectedFile = ref(null)
@@ -84,6 +94,9 @@ const handleFileUpload = event => {
   }
 
   selectedFile.value = file
+  
+  // Emit the file-selected event to the parent component
+  emit('file-selected', file)
 }
 
 // Form data preparation is now handled directly in the submitFile function
@@ -209,6 +222,12 @@ const uploadFile = async () => {
     return
   }
   
+  // If uploadApi is not provided, emit the confirm-upload event and let the parent handle the upload
+  if (!props.uploadApi) {
+    emit('confirm-upload', selectedFile.value)
+    return
+  }
+  
   // For Excel files, validate content
   if (isExcel) {
     const reader = new FileReader()
@@ -230,8 +249,9 @@ const uploadFile = async () => {
           return
         }
 
-        if (props.requiredFields.length > 0) {
-          const keys = Object.keys(json[0] || {})
+        if (props.requiredFields && Array.isArray(props.requiredFields) && props.requiredFields.length > 0) {
+          const firstRow = json[0] || {}
+          const keys = Object.keys(firstRow)
           const missingHeaders = props.requiredFields.filter(key => !keys.includes(key))
           
           if (missingHeaders.length > 0) {
@@ -342,13 +362,12 @@ const submitFile = async () => {
     if (isPdf && !tempTableName) {
       throw new Error('Cannot process PDF without a temp table name')
     }
-    
-    // Use different formData preparation based on file type
+
+    // Create the FormData once
     const formData = new FormData()
-    
-    // Add all the necessary fields manually since selectedFile might be null now for PDF
+
     if (isPdf) {
-      // Add fields based on API requirements
+      // === PDF path: manually append each field ===
       // eslint-disable-next-line camelcase
       formData.append('email', props.extraData.email || '')
       // eslint-disable-next-line camelcase
@@ -357,33 +376,48 @@ const submitFile = async () => {
       formData.append('uploaded_file', props.extraData.uploaded_file || fileDetails.name)
       // eslint-disable-next-line camelcase
       formData.append('user_group', props.extraData.user_group || 'gold')
-      
-      // Add the file
+
+      // Add the file blob
       formData.append('file', fileDetails.file)
-      
-      // Add temp table name
+
+      // Temp table & metadata
       if (tempTableName) {
         console.log(`🔄 Adding temp_table: ${tempTableName} to formData`)
         // eslint-disable-next-line camelcase
         formData.append('temp_table', tempTableName)
-        
-        // Add bank name from extraData
+
         if (props.extraData.bank) {
           console.log(`🔄 Adding bank_name: ${props.extraData.bank} to formData`)
           // eslint-disable-next-line camelcase
           formData.append('bank_name', props.extraData.bank)
         }
-        
-        // Add user ID if available
         if (props.extraData.user_id) {
           console.log(`🔄 Adding user_id: ${props.extraData.user_id} to formData`)
           // eslint-disable-next-line camelcase
           formData.append('user_id', props.extraData.user_id)
         }
-        
-        // Add file_id
-        const fileId = props.extraData.file_id || tempTableName
 
+        const fileId = props.extraData.file_id || tempTableName
+        // eslint-disable-next-line camelcase
+        formData.append('file_id', fileId)
+        console.log(`🔄 Adding file_id: ${fileId} to formData`)
+      }
+
+    } else {
+      // === Excel (or non‑PDF) path: fallback to generic append ===
+      formData.append('file', selectedFile.value)
+
+      if (props.extraData && typeof props.extraData === 'object') {
+        Object.entries(props.extraData).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            formData.append(
+              key,
+              typeof value === 'object' ? JSON.stringify(value) : value.toString()
+            )
+          }
+        })
+      }
+    }
         // eslint-disable-next-line camelcase
         formData.append('file_id', fileId)
         console.log(`🔄 Adding file_id: ${fileId} to formData`)
@@ -436,6 +470,7 @@ const submitFile = async () => {
     
     // If API call failed
     if (!res.ok) {
+
       const errorText = await res.text()
       let errorData = null
       
@@ -469,7 +504,7 @@ const submitFile = async () => {
       throw new Error(errorData?.error || errorData?.detail || 'Upload failed')
     }
     
-    const data = await res.json()
+    const data = await res.json().catch(() => ({}))
     
     // For PDF files, let's log the detailed response structure for debugging
     if (isPdf) {

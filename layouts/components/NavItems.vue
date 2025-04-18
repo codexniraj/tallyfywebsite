@@ -1,7 +1,7 @@
 <script setup>
-import VerticalNavSectionTitle from "@/@layouts/components/VerticalNavSectionTitle.vue"
-import VerticalNavGroup from "@layouts/components/VerticalNavGroup.vue"
-import VerticalNavLink from "@layouts/components/VerticalNavLink.vue"
+import VerticalNavSectionTitle from "@/@layouts/components/VerticalNavSectionTitle.vue";
+import VerticalNavGroup from "@layouts/components/VerticalNavGroup.vue";
+import VerticalNavLink from "@layouts/components/VerticalNavLink.vue";
 </script>
 
 <template>
@@ -54,6 +54,80 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue"
         target: '_blank',
         badgeContent: 'Pro',
         badgeClass: 'bg-light-primary text-primary',
+      }"
+    />
+  </VerticalNavGroup>
+
+  <!-- 👉 Bulk Upload -->
+  <VerticalNavGroup
+    :item="{
+      title: 'Accounting',
+      icon: 'bx-upload',
+    }"
+  >
+    <VerticalNavLink
+      :item="{
+        title: 'Banking',
+        to: '/banking',
+        icon: ' bxs-bank',
+        iconSize: '22',
+      }"
+    />
+    <VerticalNavLink
+      :item="{
+        title: 'Journal',
+        to: '/journal',
+        icon: 'bx-book-bookmark',
+        iconSize: '20',
+        class: 'nav-journal-link'
+      }"
+    />
+    <VerticalNavLink
+      :item="{
+        title: 'Sales',
+        to: '/sales',
+        icon: 'bx-store',
+        iconSize: '22',
+      }"
+    />
+    <VerticalNavLink
+      :item="{
+        title: 'Sales-Return',
+        to: '/sales-return',
+        icon: 'bx-cart-alt',
+        iconSize: '22',
+      }"
+    />
+    <VerticalNavLink
+      :item="{
+        title: 'Purchase',
+        to: '/purchase',
+        icon: 'bx-cart-add',
+        iconSize: '22',
+      }"
+    />
+    <VerticalNavLink
+      :item="{
+        title: 'Purchase-Return',
+        to: '/purchase-return',
+        icon: 'bx-cart-download',
+        iconSize: '22',
+      }"
+    />
+    <VerticalNavLink
+      :item="{
+        title: 'Ledger',
+        to: '/ledger',
+        icon: 'bx-book-content',
+        iconSize: '22',
+      }"
+    />
+    <VerticalNavLink
+      :item="{
+        title: 'Items',
+        to: '/items',
+        icon: 'bx-package',
+        iconSize: '22',
       }"
     />
   </VerticalNavGroup>
@@ -148,6 +222,13 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue"
       badgeClass: 'bg-light-primary text-primary',
     }"
   />
+  <VerticalNavLink
+    :item="{
+      title: 'Excel View Demo',
+      icon: 'bx-table',
+      to: '/excel-view-demo',
+    }"
+  />
 
   <VerticalNavLink
     :item="{
@@ -240,6 +321,20 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue"
       to: '/tables',
     }"
   />
+  <VerticalNavLink
+    :item="{
+      title: 'Data Tables',
+      to: 'forms-tables-datatables',
+      icon: 'bx-table',
+    }"
+  />
+  <VerticalNavLink
+    :item="{
+      title: 'Excel View Demo',
+      to: 'excel-view-demo',
+      icon: 'bx-spreadsheet',
+    }"
+  />
 
   <!-- 👉 Others -->
   <VerticalNavSectionTitle
@@ -266,3 +361,19 @@ import VerticalNavLink from "@layouts/components/VerticalNavLink.vue"
     }"
   />
 </template>
+
+<style lang="scss">
+.layout-nav-type-vertical .layout-vertical-nav .nav-group .nav-link .nav-item-icon {
+  font-size: 1.5rem !important;
+}
+
+.vertical-nav-group {
+  .v-list-group__items {
+    .vertical-nav-link {
+      i {
+        margin-inline-start: 0.25rem;
+      }
+    }
+  }
+}
+</style>

@@ -1,0 +1,16 @@
+[33mcommit e6fb491f62f1cad2149debf551cd26e2a6b2b2c5[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: Your Name <your.email@example.com>
+Date:   Mon Apr 14 15:06:51 2025 +0530
+
+    implemented login company select and gold user identifier
+
+M	app/router.options.js
+A	auth.js
+A	aws-exports.js
+A	composables/useUserCompanies.js
+M	layouts/components/DefaultLayoutWithVerticalNav.vue
+M	layouts/components/UserProfile.vue
+M	nuxt.config.ts
+A	package-lock.json
+M	package.json
+M	pages/login.vue

@@ -4,7 +4,6 @@ import Footer from '@/layouts/components/Footer.vue'
 import NavbarThemeSwitcher from '@/layouts/components/NavbarThemeSwitcher.vue'
 import NavItems from '@/layouts/components/NavItems.vue'
 import UserProfile from '@/layouts/components/UserProfile.vue'
-import logo from '@images/logo.svg?raw'
 import VerticalNavLayout from '@layouts/components/VerticalNavLayout.vue'
 import { ref, watchEffect } from 'vue'
 
@@ -94,13 +93,18 @@ watchEffect(() => {
       >
         <!-- eslint-disable vue/no-v-html -->
         <div
-          class="d-flex"
-          v-html="logo"
-        />
+          class="d-flex align-center"
+        >
+          <img
+            src="/favicon.ico"
+            alt="Logo"
+            style="block-size: 35px; inline-size: 35px;"
+          >
+        </div>
         <!-- eslint-enable -->
 
         <h1 class="app-logo-title">
-          sneat
+          TallyFy.AI
         </h1>
       </NuxtLink>
 
@@ -142,10 +146,17 @@ watchEffect(() => {
   column-gap: 0.75rem;
 
   .app-logo-title {
-    font-size: 1.25rem;
+    font-size: 2rem;
     font-weight: 500;
     line-height: 1.75rem;
-    text-transform: uppercase;
+    margin-block-end: 0;
+    text-transform: none;
+  }
+
+  img {
+    display: flex;
+    align-items: center;
+    margin-block-start: 2px;
   }
 }
 
