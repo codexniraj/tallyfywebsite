@@ -1,221 +1,102 @@
-<!-- eslint-disable camelcase -->
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import * as XLSX from 'xlsx'
 
 const props = defineProps({
-  show: {
-    type: Boolean,
-    required: true,
-  },
-  title: {
-    type: String,
-    default: 'Upload File',
-  },
-  maxFileSize: {
-    type: Number,
-    default: 50 * 1024 * 1024, // 50MB
-  },
-  acceptedFormats: {
-    type: String,
-    default: '.xls,.xlsx',
-  },
-  uploadApi: {
-    type: String,
-    required: false,
-  },
-  requiredFields: {
-    type: Array,
-    default: () => [],
-  },
-  extraData: {
-    type: Object,
-    default: () => ({}),
-  },
-  redirectPath: {
-    type: String,
-    default: '',
-  },
+  show: { type: Boolean, required: true },
+  title: { type: String, default: 'Upload File' },
+  maxFileSize: { type: Number, default: 50 * 1024 * 1024 }, // 50MB
+  acceptedFormats: { type: String, default: '.xls,.xlsx' },
+  uploadApi: { type: String, required: false },
+  requiredFields: { type: Array, default: () => [] },
+  extraData: { type: Object, default: () => ({}) },
+  redirectPath: { type: String, default: '' },
 })
 
 // eslint-disable-next-line camelcase
-const emit = defineEmits(['update:show', 'uploadSuccess'])
+const emit = defineEmits([
+  'update:show',
+  'upload-success',   // old style
+  'uploadSuccess',    // new camelCase
+  'file-selected',
+  'confirm-upload'
+])
 
-// Forward compatibility - map upload-success to uploadSuccess
-const emitUploadSuccess = data => {
+// For backward/forward compatibility, map the old event to the new
+const emitUploadSuccess = (data) => {
   emit('uploadSuccess', data)
+  emit('upload-success', data)
 }
 
 const selectedFile = ref(null)
 const error = ref('')
 const uploading = ref(false)
 const fileInput = ref(null)
-const bankElement = ref(null)
-
-// Check if bank is selected from slot
 const isBankRequired = ref(false)
 
 const isBankSelected = computed(() => {
-  if (!isBankRequired.value) return true
-  
-  return !!props.extraData.bank
+  return !isBankRequired.value || !!props.extraData.bank
 })
 
-// Check for bank selection slot on component mount
 onMounted(() => {
-  // Wait for DOM to be ready
   setTimeout(() => {
-    const bankSelectionSlot = document.querySelector('.bank-selection-slot-wrapper')
-
-    isBankRequired.value = !!bankSelectionSlot
+    const slot = document.querySelector('.bank-selection-slot-wrapper')
+    isBankRequired.value = !!slot
   }, 100)
 })
 
-const handleFileUpload = event => {
+const handleFileUpload = (event) => {
   error.value = ''
-
   const file = event.target?.files?.[0] || event
   if (!file) return
-
   if (file.size > props.maxFileSize) {
-    error.value = "File size exceeds 50MB limit."
-    
+    error.value = 'File size exceeds 50MB limit.'
     return
   }
-
   selectedFile.value = file
 }
 
-// Form data preparation is now handled directly in the submitFile function
-// to avoid issues with selectedFile being null after dialog is closed
-
-// Function to send receipts to database
 const sendReceiptsToDatabase = async (data, tempTableName) => {
   try {
-    // Check if we have receipts in the response
-    if (!data.receipts || !Array.isArray(data.receipts) || data.receipts.length === 0) {
-      console.warn('No receipts found in the PDF processing response')
-      console.log('Response data structure:', JSON.stringify(data, null, 2))
-      
-      return
-    }
-    
-    console.log(`Found ${data.receipts.length} receipts in PDF response. Sending to database...`)
-    console.log('First receipt sample:', JSON.stringify(data.receipts[0], null, 2))
-    
-    // Since the backend isn't properly implementing the required upload_id, we need to modify it
-    console.log('Since we still have database errors, we need to apply a workaround...')
-    
-    try {
-      // Try a direct database update to fix the missing upload_id
-      console.log(`Applying SQL fix for table ${tempTableName}...`)
-      
-      // Simple request to try to fix the table with raw SQL
-      const fixResponse = await fetch('http://localhost:3001/api/executeSql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sql: `UPDATE ${tempTableName} SET upload_id = '${tempTableName}', email = '${props.extraData.email || ''}', company = '${props.extraData.company || ''}' WHERE upload_id IS NULL`,
-        }),
-      }).catch(err => {
-        console.warn('SQL fix endpoint not available:', err.message)
-        
-        return { ok: false }
-      })
-      
-      if (fixResponse.ok) {
-        console.log('✅ Applied SQL fix successfully!')
-      }
-    } catch (err) {
-      console.warn('Failed to apply SQL fix:', err.message)
-    }
-    
-    // Create simplified data for the API
-    const receiptsData = {
+    const receipts = data.receipts || []
+    if (!receipts.length) return
+    const payload = {
       temp_table: tempTableName,
       email: props.extraData.email || '',
       company: props.extraData.company || '',
-      upload_id: tempTableName, // Send the table name as the upload_id
-      receipts: data.receipts,
+      upload_id: tempTableName,
+      receipts,
     }
-    
-    // Log data being sent for debugging
-    console.log('Sending receipts data to database with params:', {
-      temp_table: receiptsData.temp_table,
-      email: receiptsData.email,
-      company: receiptsData.company,
-      upload_id: receiptsData.upload_id,
-      receiptCount: receiptsData.receipts.length,
-    })
-    
-    // Send the data to the insertParsedReceipts endpoint
-    const response = await fetch('http://localhost:3001/api/insertParsedReceipts', {
+    const res = await fetch('http://3.108.64.167:3001/api/insertParsedReceipts', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(receiptsData),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     })
-    
-    // Log raw response for debugging
-    console.log('API Response Status:', response.status, response.statusText)
-    
-    if (!response.ok) {
-      const errorText = await response.text()
-
-      console.error('API Error Response:', errorText)
-      
-      try {
-        const errorJson = JSON.parse(errorText)
-
-        console.error('API Error JSON:', errorJson)
-        throw new Error(`Failed to insert receipts: ${errorJson.message || errorJson.error || 'Unknown error'}`)
-      } catch (parseError) {
-        throw new Error(`Failed to insert receipts: ${response.status} ${response.statusText} - ${errorText}`)
-      }
-    }
-    
-    const result = await response.json()
-    
-    console.log('Successfully inserted receipts to database:', result)
-    
-    return result
-  } catch (error) {
-    console.error('Error inserting receipts to database:', error)
-    throw error
+    if (!res.ok) throw new Error(await res.text())
+    return await res.json()
+  } catch (e) {
+    console.error('sendReceiptsToDatabase error:', e)
+    throw e
   }
 }
 
 const uploadFile = async () => {
   if (!selectedFile.value) return
-  
-  // Validate bank selection if required
   if (isBankRequired.value && !isBankSelected.value) {
-    error.value = "Please select a bank before uploading a statement."
-    
+    error.value = 'Please select a bank before uploading.'
     return
   }
-
-  // Check file type
-  const fileType = selectedFile.value.name.split('.').pop().toLowerCase()
-  const isPdf = fileType === 'pdf'
-  const isExcel = ['xls', 'xlsx'].includes(fileType)
-  
+  const ext = selectedFile.value.name.split('.').pop().toLowerCase()
+  const isPdf = ext === 'pdf'
+  const isExcel = ['xls', 'xlsx'].includes(ext)
   if (!isPdf && !isExcel) {
-    error.value = "Only Excel (.xls, .xlsx) and PDF (.pdf) files are allowed."
-    
+    error.value = 'Only Excel (.xls, .xlsx) and PDF (.pdf) files are allowed.'
     return
   }
-  
-  // If uploadApi is not provided, emit the confirm-upload event and let the parent handle the upload
-  if (!props.uploadApi) {
+  if (!props.uploadApi && isExcel) {
     emit('confirm-upload', selectedFile.value)
     return
   }
-  
-  // For Excel files, validate content
   if (isExcel) {
     const reader = new FileReader()
 
@@ -257,17 +138,13 @@ const uploadFile = async () => {
 
     reader.readAsArrayBuffer(selectedFile.value)
   } else {
-    // For PDF files, skip Excel validation and submit directly
     await submitFile()
   }
 }
 
-// Separate submit function for both file types
 const submitFile = async () => {
   try {
     uploading.value = true
-    
-    // Check if it's a PDF file
     const isPdf = selectedFile.value.name.toLowerCase().endsWith('.pdf')
     
     // Store file details for later use (to prevent null reference issues)
@@ -280,16 +157,16 @@ const submitFile = async () => {
     
     // For PDF files, first create a temp table
     let tempTableName = null
-    
+
+    // PDF: create temp table
     if (isPdf) {
-      try {
-        console.log('PDF detected - Creating temp table first...')
-        
-        // Prepare data for temp table creation
-        const createTempTableData = {
+      const resp1 = await fetch('http://3.108.64.167:3001/api/createTempTable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           email: props.extraData.email || '',
           company: props.extraData.company || '',
-          fileName: fileDetails.name,
+          fileName: fileDetails.file.name,
           bankAccount: props.extraData.bank || '',
         }
         
@@ -351,51 +228,18 @@ const submitFile = async () => {
     
     // Use different formData preparation based on file type
     const formData = new FormData()
-    
-    // Add all the necessary fields manually since selectedFile might be null now for PDF
     if (isPdf) {
-      // Add fields based on API requirements
-      // eslint-disable-next-line camelcase
       formData.append('email', props.extraData.email || '')
-      // eslint-disable-next-line camelcase
       formData.append('company', props.extraData.company || '')
-      // eslint-disable-next-line camelcase
-      formData.append('uploaded_file', props.extraData.uploaded_file || fileDetails.name)
-      // eslint-disable-next-line camelcase
+      formData.append('uploaded_file', props.extraData.uploaded_file || fileDetails.file.name)
       formData.append('user_group', props.extraData.user_group || 'gold')
-      
-      // Add the file
       formData.append('file', fileDetails.file)
-      
-      // Add temp table name
-      if (tempTableName) {
-        console.log(`🔄 Adding temp_table: ${tempTableName} to formData`)
-        // eslint-disable-next-line camelcase
-        formData.append('temp_table', tempTableName)
-        
-        // Add bank name from extraData
-        if (props.extraData.bank) {
-          console.log(`🔄 Adding bank_name: ${props.extraData.bank} to formData`)
-          // eslint-disable-next-line camelcase
-          formData.append('bank_name', props.extraData.bank)
-        }
-        
-        // Add user ID if available
-        if (props.extraData.user_id) {
-          console.log(`🔄 Adding user_id: ${props.extraData.user_id} to formData`)
-          // eslint-disable-next-line camelcase
-          formData.append('user_id', props.extraData.user_id)
-        }
-        
-        // Add file_id
-        const fileId = props.extraData.file_id || tempTableName
-
-        // eslint-disable-next-line camelcase
-        formData.append('file_id', fileId)
-        console.log(`🔄 Adding file_id: ${fileId} to formData`)
-      }
+      formData.append('temp_table', tempTableName)
+      if (props.extraData.bank) formData.append('bank_name', props.extraData.bank)
+      if (props.extraData.user_id) formData.append('user_id', props.extraData.user_id)
+      const fileId = props.extraData.file_id || tempTableName
+      formData.append('file_id', fileId)
     } else {
-      // For Excel, use the original function
       formData.append('file', selectedFile.value)
       
       // Add any extra data from props
@@ -507,55 +351,19 @@ const submitFile = async () => {
 
     // For PDF uploads, check for receipts and send them to the database
     if (isPdf && tempTableName) {
-      try {
-        // Check where receipts might be in the response structure
-        const receipts = data.receipts || 
-                         (data.data && data.data.receipts) || 
-                         (data.response && data.response.receipts)
-                         
-        if (receipts && Array.isArray(receipts) && receipts.length > 0) {
-          console.log(`Found ${receipts.length} receipts in the response. Sending to database...`)
-          
-          // Create a data object with the receipts for the database function
-          const dataWithReceipts = { ...data, receipts }
-          
-          // Send parsed receipts to the database
-          const insertResult = await sendReceiptsToDatabase(dataWithReceipts, tempTableName)
-          
-          console.log('✅ Receipts inserted into database successfully')
-          
-          // Add receipt information to the response data
-          data.receiptsInserted = true
-          data.receiptsCount = receipts.length
-          data.insertResult = insertResult
-        } else {
-          console.log('No receipts found in the PDF processing response structure')
-        }
-      } catch (error) {
-        console.error('❌ Failed to insert receipts into database:', error)
-
-        // Don't fail the overall process if this fails
+      const receipts = data.receipts || data.data?.receipts || data.response?.receipts
+      if (Array.isArray(receipts) && receipts.length) {
+        await sendReceiptsToDatabase({ ...data, receipts }, tempTableName)
       }
     }
-    
-    // Emit final success event
-    emitUploadSuccess({
-      file: isPdf ? fileDetails.file : selectedFile.value,
-      response: data,
-      tempTableName: tempTableName,
-    })
-    
-    if (!isPdf) {
-      // Only close dialog for Excel files, for PDF it's already closed
-      closeDialog()
-    }
-    
-    if (props.redirectPath) {
-      navigateTo(props.redirectPath)
-    }
-  } catch (err) {
-    console.error('Error in submitFile:', err)
-    error.value = err.message || "Failed to upload data."
+
+    // Final emit & cleanup
+    emitUploadSuccess({ file: isPdf ? fileDetails.file : selectedFile.value, response: data, tempTableName })
+    if (!isPdf) closeDialog()
+    if (props.redirectPath) navigateTo(props.redirectPath)
+  } catch (e) {
+    console.error('submitFile error:', e)
+    error.value = `Upload failed: ${e.message}`
   } finally {
     uploading.value = false
   }
