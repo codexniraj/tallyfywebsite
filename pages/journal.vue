@@ -110,7 +110,7 @@
       }"
       @file-selected="handleFileUpload"
       @confirm-upload="uploadFile"
-      @upload-success="handleUploadSuccess"
+      @uploadSuccess="handleUploadSuccess"
     />
     
 

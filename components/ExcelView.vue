@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, directive, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   // Data properties
@@ -76,6 +76,11 @@ const props = defineProps({
   searchable: {
     type: Boolean,
     default: true,
+  },
+  // Editing functionality
+  editable: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -87,6 +92,7 @@ const emit = defineEmits([
   'page-change',
   'items-per-page-change',
   'search',
+  'update:item' // New emit for updating item values
 ])
 
 // Search functionality
@@ -211,25 +217,77 @@ const handleItemsPerPageChange = (itemsPerPage) => {
 // Selection
 const selectedRows = ref([])
 
+// Function to select all rows with the same reference number
+const handleSelectRow = (row, event) => {
+  console.log('handleSelectRow called with row:', row)
+  
+  if (!row) return
+  
+  // If the row has a reference_no field, we'll select all rows with the same reference number
+  if (row.reference_no !== undefined) {
+    console.log('Row has reference_no:', row.reference_no)
+    
+    // Do not allow selection if status is "send to tally"
+    if (row.status && row.status.toLowerCase() === "send to tally") {
+      console.log('Cannot select row with status "send to tally"')
+      return
+    }
+    
+    // Find all rows with the same reference number
+    const relatedRows = props.items.filter(item => 
+      item.reference_no === row.reference_no
+    )
+    
+    console.log('Found related rows:', relatedRows.length)
+    
+    // Check if all related rows are already selected
+    const allSelected = relatedRows.every(relatedRow => 
+      selectedRows.value.some(selectedRow => selectedRow.id === relatedRow.id)
+    )
+    
+    if (allSelected) {
+      // If all are selected, deselect them
+      console.log('All related rows are selected, deselecting them')
+      selectedRows.value = selectedRows.value.filter(selectedRow => 
+        !relatedRows.some(relatedRow => relatedRow.id === selectedRow.id)
+      )
+    } else {
+      // If not all are selected, select all related rows that aren't "send to tally"
+      console.log('Not all related rows are selected, selecting them')
+      const rowsToAdd = relatedRows.filter(relatedRow => 
+        !relatedRow.status || relatedRow.status.toLowerCase() !== "send to tally"
+      )
+      
+      // Add only rows that aren't already selected
+      rowsToAdd.forEach(rowToAdd => {
+        if (!selectedRows.value.some(selectedRow => selectedRow.id === rowToAdd.id)) {
+          selectedRows.value.push(rowToAdd)
+        }
+      })
+    }
+  } else {
+    // Default behavior for rows without reference_no
+    console.log('Row does not have reference_no, using default selection behavior')
+    if (event.target.checked) {
+      selectedRows.value.push(row)
+    } else {
+      const index = selectedRows.value.findIndex(item => item.id === row.id)
+      if (index !== -1) {
+        selectedRows.value.splice(index, 1)
+      }
+    }
+  }
+  
+  emit('update:selected', selectedRows.value)
+}
+
 const handleSelectAll = (event) => {
   selectedRows.value = event.target.checked ? [...paginatedItems.value] : []
   emit('update:selected', selectedRows.value)
 }
 
-const handleSelectRow = (row, event) => {
-  if (event.target.checked) {
-    selectedRows.value.push(row)
-  } else {
-    const index = selectedRows.value.findIndex(item => item === row)
-    if (index !== -1) {
-      selectedRows.value.splice(index, 1)
-    }
-  }
-  emit('update:selected', selectedRows.value)
-}
-
 const isRowSelected = (row) => {
-  return selectedRows.value.includes(row)
+  return selectedRows.value.some(selectedRow => selectedRow.id === row.id)
 }
 
 const allRowsSelected = computed(() => {
@@ -285,6 +343,187 @@ watch(() => props.itemsPerPage, (newValue) => {
   computedItemsPerPage.value = newValue
 })
 
+// Function to check if a row's reference number should be highlighted
+const shouldHighlightRow = (item) => {
+  if (!item || item.reference_no === undefined) return false
+  
+  // Count how many items have this reference number
+  const sameRefCount = props.items.filter(row => 
+    row.reference_no === item.reference_no
+  ).length
+  
+  // Highlight only if there are multiple rows with the same reference number
+  return sameRefCount > 1
+}
+
+// Handle cell editing
+const editingCell = ref(null)
+const editValue = ref('')
+
+// Add the formatDate function after the other utility functions
+const formatDate = (value) => {
+  if (!value) return '';
+  if (typeof value === 'number') {
+    const jsDate = new Date((value - 25569) * 86400 * 1000);
+    return jsDate.toISOString().split('T')[0];
+  }
+  const parsed = new Date(value);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+  return '';
+};
+
+const startEditing = (row, header) => {
+  // Only allow editing if editable is true and not in a special column
+  if (!props.editable || !header || !row) return
+  if (['id', 'status'].includes(header.key)) return // Don't allow editing of ID or status
+
+  editingCell.value = { rowId: row.id, key: header.key }
+  // Format date value if it's a date field
+  editValue.value = header.key === 'date' ? formatDate(row[header.key]) : row[header.key]
+  
+  // Focus and select text in the next tick after the input is rendered
+  setTimeout(() => {
+    const inputElement = document.querySelector('.native-edit-input')
+    if (inputElement) {
+      inputElement.focus()
+      if (header.key !== 'date') {
+        inputElement.select()
+      }
+    }
+  }, 10)
+}
+
+const saveEdit = (event) => {
+  if (!editingCell.value) return
+
+  const { rowId, key } = editingCell.value
+  const row = props.items.find(item => item.id === rowId)
+  if (!row) return
+
+  // Create a modified row with the updated value
+  const updatedRow = { ...row, [key]: editValue.value }
+  
+  // Emit the updated item
+  emit('update:item', { originalRow: row, updatedRow, field: key, value: editValue.value })
+  
+  // Store the current cell position for navigation
+  const currentIndex = props.headers.findIndex(h => h.key === key)
+  const nextHeader = props.headers[currentIndex + 1]
+  const navigateToNext = event && event.key === 'Enter' && nextHeader
+  
+  // Reset editing state
+  editingCell.value = null
+  editValue.value = ''
+  
+  // If Enter was pressed, navigate to the next cell in the row
+  if (navigateToNext) {
+    setTimeout(() => {
+      editingCell.value = { rowId, key: nextHeader.key }
+      editValue.value = row[nextHeader.key]
+    }, 10)
+  }
+}
+
+const cancelEdit = () => {
+  editingCell.value = null
+  editValue.value = ''
+}
+
+// Add a custom directive to select all text on focus
+const vSelectAll = directive('select-all', {
+  mounted: (el) => {
+    const inputEl = el.querySelector('input')
+    if (inputEl) {
+      inputEl.addEventListener('focus', () => {
+        setTimeout(() => {
+          inputEl.select()
+        }, 10)
+      })
+    }
+  }
+})
+
+// Add event handler for tab key
+const handleTabKey = (event) => {
+  if (!editingCell.value) return
+
+  // Prevent default tab behavior
+  event.preventDefault()
+
+  const { rowId, key } = editingCell.value
+  const row = props.items.find(item => item.id === rowId)
+  if (!row) return
+
+  // Save current edit
+  const updatedRow = { ...row, [key]: editValue.value }
+  emit('update:item', { originalRow: row, updatedRow, field: key, value: editValue.value })
+
+  // Find current position
+  const headers = props.headers.filter(h => !['id', 'status'].includes(h.key))
+  const currentIndex = headers.findIndex(h => h.key === key)
+  
+  // Calculate next position (with shift+tab going backwards)
+  let nextIndex = event.shiftKey ? currentIndex - 1 : currentIndex + 1
+  
+  // Handle row boundaries
+  if (nextIndex < 0 || nextIndex >= headers.length) {
+    // Find current row index
+    const rowIndex = paginatedItems.value.findIndex(item => item.id === rowId)
+    
+    if (event.shiftKey && nextIndex < 0) {
+      // Move to previous row, last cell
+      const prevRowIndex = rowIndex - 1
+      if (prevRowIndex >= 0) {
+        const prevRow = paginatedItems.value[prevRowIndex]
+        nextIndex = headers.length - 1
+        
+        // Reset current edit
+        editingCell.value = null
+        editValue.value = ''
+        
+        // Start editing next cell
+        setTimeout(() => {
+          editingCell.value = { rowId: prevRow.id, key: headers[nextIndex].key }
+          editValue.value = prevRow[headers[nextIndex].key] || ''
+        }, 10)
+      }
+    } else if (!event.shiftKey && nextIndex >= headers.length) {
+      // Move to next row, first cell
+      const nextRowIndex = rowIndex + 1
+      if (nextRowIndex < paginatedItems.value.length) {
+        const nextRow = paginatedItems.value[nextRowIndex]
+        nextIndex = 0
+        
+        // Reset current edit
+        editingCell.value = null
+        editValue.value = ''
+        
+        // Start editing next cell
+        setTimeout(() => {
+          editingCell.value = { rowId: nextRow.id, key: headers[nextIndex].key }
+          editValue.value = nextRow[headers[nextIndex].key] || ''
+        }, 10)
+      }
+    }
+    return
+  }
+  
+  // Move to next cell in same row
+  const nextHeader = headers[nextIndex]
+  
+  // Reset current edit
+  editingCell.value = null
+  editValue.value = ''
+  
+  // Start editing next cell
+  setTimeout(() => {
+    editingCell.value = { rowId, key: nextHeader.key }
+    editValue.value = row[nextHeader.key] || ''
+  }, 10)
+}
+
 onMounted(() => {
   computedItemsPerPage.value = props.itemsPerPage
 })
@@ -292,18 +531,18 @@ onMounted(() => {
 
 <template>
   <div class="excel-view">
-    <!-- Table controls - reduce margin -->
-    <div class="excel-view__controls mb-2">
-      <div class="excel-view__actions d-flex align-center flex-wrap gap-3">
-        <!-- Left side - Title slot preserved but with minimal space -->
+    <!-- Table controls -->
+    <div class="excel-view__controls mb-4">
+      <div class="excel-view__actions d-flex align-center flex-wrap gap-4">
+        <!-- Left side - Title and export options -->
         <div class="d-flex align-center">
           <slot name="title">
-            <!-- Title slot intentionally empty -->
+            <h5 class="font-weight-medium mb-0">Data Table</h5>
           </slot>
         </div>
         
         <!-- Right side - Buttons -->
-        <div class="d-flex align-center flex-wrap gap-3 ms-auto">
+        <div class="d-flex align-center flex-wrap gap-4 ms-auto">
           <!-- Action buttons -->
           <div class="excel-view__export-actions d-flex gap-2">
             <slot name="actions">
@@ -318,7 +557,7 @@ onMounted(() => {
     <div class="excel-view__main-wrapper" :class="{ 'excel-view__main-wrapper--bordered': bordered }">
       <!-- Date Range Filter outside table -->
       <div v-if="searchable" class="excel-view__date-range-container">
-        <div class="d-flex flex-wrap align-center gap-3">
+        <div class="d-flex flex-wrap align-center gap-4">
           <div class="d-flex align-center">
             <span class="text-body-2 font-weight-medium me-2">FROM</span>
             <VTextField
@@ -492,7 +731,10 @@ onMounted(() => {
                 v-for="(item, index) in searchResults"
                 :key="index"
                 class="excel-view__row"
-                :class="{ 'excel-view__row--selected': isRowSelected(item) }"
+                :class="{ 
+                  'excel-view__row--selected': isRowSelected(item),
+                  'excel-view__row--grouped': shouldHighlightRow(item)
+                }"
                 @click="handleRowClick(item, $event)"
               >
                 <!-- SR. NO. cell with optional checkbox -->
@@ -517,16 +759,39 @@ onMounted(() => {
                   class="excel-view__td"
                   :class="`excel-view__td--align-${header.align || 'start'}`"
                   @click="handleCellClick(item, header, $event)"
+                  @dblclick="startEditing(item, header)"
                 >
-                  <!-- Use slot if provided -->
-                  <slot
-                    :name="`item.${header.key}`"
-                    :item="item"
-                    :value="item[header.key]"
-                    :index="index"
-                  >
-                    {{ item[header.key] }}
-                  </slot>
+                  <!-- Show input when editing this cell -->
+                  <div v-if="editingCell && editingCell.rowId === item.id && editingCell.key === header.key">
+                    <input
+                      v-if="header.key !== 'date'"
+                      ref="editInput"
+                      v-model="editValue"
+                      class="native-edit-input"
+                      autofocus
+                      @keyup.enter="saveEdit"
+                      @keyup.esc="cancelEdit"
+                      @keydown.tab="handleTabKey"
+                      @blur="saveEdit"
+                    />
+                    <input
+                      v-else
+                      ref="editInput"
+                      v-model="editValue"
+                      type="date"
+                      class="native-edit-input"
+                      autofocus
+                      @keyup.enter="saveEdit"
+                      @keyup.esc="cancelEdit"
+                      @keydown.tab="handleTabKey"
+                      @blur="saveEdit"
+                    />
+                  </div>
+                  <!-- Show formatted date or regular value -->
+                  <template v-else>
+                    <span v-if="header.key === 'date'">{{ formatDate(item[header.key]) }}</span>
+                    <span v-else>{{ item[header.key] }}</span>
+                  </template>
                 </td>
                 
                 <!-- Actions cell with only delete icon -->
@@ -595,6 +860,131 @@ onMounted(() => {
   </div>
 </template>
 
+<style lang="scss">
+/* Global styles for editable cells */
+.excel-view {
+  .v-field {
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+
+    &__input {
+      padding: 0 !important;
+      color: inherit !important;
+      font-family: inherit !important;
+      font-size: inherit !important;
+      min-block-size: unset !important;
+    }
+
+    &__outline,
+    &__overlay {
+      display: none !important;
+      border: none !important;
+      background: transparent !important;
+      opacity: 0 !important;
+    }
+
+    &--focused {
+      background: transparent !important;
+      box-shadow: none !important;
+
+      .v-field__outline {
+        display: none !important;
+        border: none !important;
+        background: transparent !important;
+        opacity: 0 !important;
+      }
+    }
+  }
+
+  .v-text-field {
+    position: absolute;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    inset: -1px;
+
+    .v-input__control,
+    .v-input__slot,
+    .v-field-container,
+    .v-field {
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      min-block-size: unset !important;
+    }
+
+    input {
+      padding: inherit !important;
+      border: none !important;
+      margin: 0 !important;
+      background: transparent !important;
+      block-size: 100% !important;
+      box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), 0.3) !important;
+      caret-color: rgba(var(--v-theme-primary), 1) !important;
+      min-block-size: unset !important;
+      outline: none !important;
+    }
+
+    .v-messages,
+    .v-counter {
+      display: none !important;
+    }
+  }
+
+  .excel-view__td--align-center .v-field__input {
+    text-align: center !important;
+  }
+
+  .excel-view__td--align-end .v-field__input {
+    text-align: end !important;
+  }
+
+  /* Add a cursor style to show cells are editable */
+  .excel-view__td {
+    position: relative;
+    cursor: cell !important;
+
+    &:hover {
+      background-color: rgba(var(--v-theme-primary), 0.04) !important;
+    }
+  }
+
+  /* Style for the native input */
+  .native-edit-input {
+    position: absolute;
+    z-index: 1;
+    padding: inherit;
+    border: none;
+    margin: 0;
+    background-color: transparent;
+    block-size: 100%;
+    box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), 0.3);
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    inline-size: 100%;
+    inset: 0;
+    outline: none;
+    text-align: inherit;
+
+    &:focus {
+      background-color: transparent;
+      outline: none;
+    }
+  }
+
+  /* Align text inputs properly */
+  .excel-view__td--align-center .native-edit-input {
+    text-align: center;
+  }
+
+  .excel-view__td--align-end .native-edit-input {
+    text-align: end;
+  }
+}
+</style>
+
 <style lang="scss" scoped>
 .excel-view {
   inline-size: 100%;
@@ -609,13 +999,12 @@ onMounted(() => {
   }
 
   &__date-range-container {
+    padding: 12px;
     background-color: rgba(var(--v-theme-surface), 1);
     border-block-end: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-    padding-block: 8px;
-    padding-inline: 12px;
 
     .date-range-field {
-      inline-size: 160px;
+      inline-size: 180px;
     }
 
     span {
@@ -770,6 +1159,7 @@ onMounted(() => {
   }
 
   &__td {
+    position: relative;
     background-color: inherit;
     text-align: start;
 

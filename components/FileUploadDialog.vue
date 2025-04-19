@@ -38,13 +38,12 @@ const props = defineProps({
   },
 })
 
-// Support both emit patterns for backward and forward compatibility
-const emit = defineEmits(['update:show', 'upload-success', 'file-selected', 'confirm-upload', 'uploadSuccess'])
+// eslint-disable-next-line camelcase
+const emit = defineEmits(['update:show', 'uploadSuccess'])
 
 // Forward compatibility - map upload-success to uploadSuccess
 const emitUploadSuccess = data => {
   emit('uploadSuccess', data)
-  emit('upload-success', data) // Also emit the kebab-case version for backward compatibility
 }
 
 const selectedFile = ref(null)
@@ -85,10 +84,10 @@ const handleFileUpload = event => {
   }
 
   selectedFile.value = file
-  
-  // Emit the file-selected event to the parent component
-  emit('file-selected', file)
 }
+
+// Form data preparation is now handled directly in the submitFile function
+// to avoid issues with selectedFile being null after dialog is closed
 
 // Function to send receipts to database
 const sendReceiptsToDatabase = async (data, tempTableName) => {
@@ -101,7 +100,7 @@ const sendReceiptsToDatabase = async (data, tempTableName) => {
       return
     }
     
-    console.log(Found ${data.receipts.length} receipts in PDF response. Sending to database...)
+    console.log(`Found ${data.receipts.length} receipts in PDF response. Sending to database...`)
     console.log('First receipt sample:', JSON.stringify(data.receipts[0], null, 2))
     
     // Since the backend isn't properly implementing the required upload_id, we need to modify it
@@ -109,7 +108,7 @@ const sendReceiptsToDatabase = async (data, tempTableName) => {
     
     try {
       // Try a direct database update to fix the missing upload_id
-      console.log(Applying SQL fix for table ${tempTableName}...)
+      console.log(`Applying SQL fix for table ${tempTableName}...`)
       
       // Simple request to try to fix the table with raw SQL
       const fixResponse = await fetch('http://localhost:3001/api/executeSql', {
@@ -118,7 +117,7 @@ const sendReceiptsToDatabase = async (data, tempTableName) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          sql: UPDATE ${tempTableName} SET upload_id = '${tempTableName}', email = '${props.extraData.email || ''}', company = '${props.extraData.company || ''}' WHERE upload_id IS NULL,
+          sql: `UPDATE ${tempTableName} SET upload_id = '${tempTableName}', email = '${props.extraData.email || ''}', company = '${props.extraData.company || ''}' WHERE upload_id IS NULL`,
         }),
       }).catch(err => {
         console.warn('SQL fix endpoint not available:', err.message)
@@ -172,9 +171,9 @@ const sendReceiptsToDatabase = async (data, tempTableName) => {
         const errorJson = JSON.parse(errorText)
 
         console.error('API Error JSON:', errorJson)
-        throw new Error(Failed to insert receipts: ${errorJson.message || errorJson.error || 'Unknown error'})
+        throw new Error(`Failed to insert receipts: ${errorJson.message || errorJson.error || 'Unknown error'}`)
       } catch (parseError) {
-        throw new Error(Failed to insert receipts: ${response.status} ${response.statusText} - ${errorText})
+        throw new Error(`Failed to insert receipts: ${response.status} ${response.statusText} - ${errorText}`)
       }
     }
     
@@ -242,7 +241,7 @@ const uploadFile = async () => {
           const keys = Object.keys(firstRow)
           const missingHeaders = props.requiredFields.filter(key => !keys.includes(key))
           if (missingHeaders.length > 0) {
-            error.value = Missing compulsory headers: ${missingHeaders.join(', ')}
+            error.value = `Missing compulsory headers: ${missingHeaders.join(', ')}`
             
             return
           }
@@ -370,20 +369,20 @@ const submitFile = async () => {
       
       // Add temp table name
       if (tempTableName) {
-        console.log(🔄 Adding temp_table: ${tempTableName} to formData)
+        console.log(`🔄 Adding temp_table: ${tempTableName} to formData`)
         // eslint-disable-next-line camelcase
         formData.append('temp_table', tempTableName)
         
         // Add bank name from extraData
         if (props.extraData.bank) {
-          console.log(🔄 Adding bank_name: ${props.extraData.bank} to formData)
+          console.log(`🔄 Adding bank_name: ${props.extraData.bank} to formData`)
           // eslint-disable-next-line camelcase
           formData.append('bank_name', props.extraData.bank)
         }
         
         // Add user ID if available
         if (props.extraData.user_id) {
-          console.log(🔄 Adding user_id: ${props.extraData.user_id} to formData)
+          console.log(`🔄 Adding user_id: ${props.extraData.user_id} to formData`)
           // eslint-disable-next-line camelcase
           formData.append('user_id', props.extraData.user_id)
         }
@@ -393,7 +392,7 @@ const submitFile = async () => {
 
         // eslint-disable-next-line camelcase
         formData.append('file_id', fileId)
-        console.log(🔄 Adding file_id: ${fileId} to formData)
+        console.log(`🔄 Adding file_id: ${fileId} to formData`)
       }
     } else {
       // For Excel, use the original function
@@ -401,9 +400,7 @@ const submitFile = async () => {
       
       // Add any extra data from props
       Object.entries(props.extraData).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          formData.append(key, typeof value === 'object' ? JSON.stringify(value) : value.toString())
-        }
+        formData.append(key, value)
       })
     }
     
@@ -421,7 +418,7 @@ const submitFile = async () => {
       ? 'http://3.108.64.167:8000/process-pdf' 
       : props.uploadApi
     
-    console.log(Uploading ${isPdf ? 'PDF' : 'Excel'} file to: ${apiEndpoint})
+    console.log(`Uploading ${isPdf ? 'PDF' : 'Excel'} file to: ${apiEndpoint}`)
     
     // For PDF specifically, add debugging info
     if (isPdf) {
@@ -441,7 +438,7 @@ const submitFile = async () => {
     })
     
     // For improved debugging, log the status and headers
-    console.log(API Response Status: ${res.status} ${res.statusText})
+    console.log(`API Response Status: ${res.status} ${res.statusText}`)
     
     // If API call failed
     if (!res.ok) {
@@ -461,13 +458,13 @@ const submitFile = async () => {
           
           const errorMessages = errorData.detail.map(d => {
             if (typeof d === 'object') {
-              return ${d.loc?.[1] || ''}: ${d.msg || 'Unknown error'}
+              return `${d.loc?.[1] || ''}: ${d.msg || 'Unknown error'}`
             }
             
             return d
           }).join(', ')
           
-          throw new Error(Validation error: ${errorMessages})
+          throw new Error(`Validation error: ${errorMessages}`)
         }
       } catch (jsonError) {
         console.error('Failed to parse API error as JSON:', jsonError)
@@ -517,7 +514,7 @@ const submitFile = async () => {
                          (data.response && data.response.receipts)
                          
         if (receipts && Array.isArray(receipts) && receipts.length > 0) {
-          console.log(Found ${receipts.length} receipts in the response. Sending to database...)
+          console.log(`Found ${receipts.length} receipts in the response. Sending to database...`)
           
           // Create a data object with the receipts for the database function
           const dataWithReceipts = { ...data, receipts }

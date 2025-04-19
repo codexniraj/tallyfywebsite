@@ -35,7 +35,8 @@ const settings = ref({
   selectable: true,
   showPagination: true,
   searchable: true,
-  itemsPerPage: 10
+  itemsPerPage: 10,
+  editable: true // Enable editing
 })
 
 // Add Ledger Dialog
@@ -147,54 +148,87 @@ const fetchLedgerNames = async () => {
       return
     }
     
-    // In a real implementation, fetch from your API
-    const res = await axios.get('http://3.108.64.167:3001/api/getMergedLedgerNames', {
-      params: { 
-        email: userEmail.value, 
-        company: selectedCompany.value 
+    // First try to get ledger names from the API
+    let useMockData = false;
+    
+    try {
+      const res = await axios.get('http://3.108.64.167:3001/api/getMergedLedgerNames', {
+        params: { 
+          email: userEmail.value, 
+          company: selectedCompany.value 
+        }
+      })
+      
+      console.log('Ledger names received from API:', res.data)
+      
+      // Immediately check if any of our particulars match the ledger names
+      const foundInAPI = items.value.filter(item => {
+        if (!item.particulars) return false;
+        return res.data.some(ledger => 
+          ledger.toLowerCase().trim() === item.particulars.toLowerCase().trim()
+        );
+      });
+      
+      console.log(`Found ${foundInAPI.length} matching ledgers out of ${items.value.length} items in API data`);
+      
+      if (foundInAPI.length === 0) {
+        // If no matches found, use mock data
+        console.log('No matches found in API data, using mock data instead');
+        useMockData = true;
+      } else {
+        // Otherwise use the API data
+        ledgerOptions.value = res.data;
       }
-    })
-    
-    console.log('Ledger names received:', res.data)
-    ledgerOptions.value = res.data
-  } catch (err) {
-    console.error('Error fetching ledger names:', err)
-    error.value = 'Failed to load ledger names: ' + (err.response?.data?.error || err.message)
-  }
-}
-
-// Sample data generation
-const generateSampleData = (count = 50) => {
-  const statusOptions = ['pending', 'saved', 'send to tally']
-  const drCrOptions = ['Dr', 'Cr']
-  const costCenters = ['Marketing', 'Sales', 'Finance', 'HR', 'IT', 'Admin', 'Operations']
-  const particulars = [
-    'Office Rent', 'Salaries', 'Utilities', 'Internet Services', 
-    'Software Subscriptions', 'Travel Expenses', 'Marketing Campaign', 
-    'Equipment Purchase', 'Legal Services', 'Consulting Fees'
-  ]
-  
-  return Array.from({ length: count }, (_, i) => {
-    const amount = Math.floor(Math.random() * 10000) + 1000
-    const refNo = Math.floor(Math.random() * 15) + 1
-    const journalNo = Math.floor(Math.random() * 10) + 1
-    const randomMonth = Math.floor(Math.random() * 3)
-    const randomDay = Math.floor(Math.random() * 28) + 1
-    
-    return {
-      id: i + 1,
-      journal_no: journalNo,
-      reference_no: refNo,
-      date: new Date(2024, randomMonth, randomDay).toLocaleDateString(),
-      cost_center: costCenters[Math.floor(Math.random() * costCenters.length)],
-      particulars: particulars[Math.floor(Math.random() * particulars.length)],
-      dr_cr: drCrOptions[Math.floor(Math.random() * drCrOptions.length)],
-      amount: amount,
-      ledger_narration: `Payment for ${particulars[Math.floor(Math.random() * particulars.length)].toLowerCase()}`,
-      narration: `Transaction details for reference #${refNo}`,
-      status: statusOptions[Math.floor(Math.random() * statusOptions.length)],
+    } catch (apiErr) {
+      console.error('API error, using mock data instead:', apiErr.message);
+      useMockData = true;
     }
-  })
+    
+    // Use mock data that includes some of our particulars
+    if (useMockData) {
+      // Extract unique particulars from the items
+      const uniqueParticulars = [...new Set(items.value.map(item => item.particulars))];
+      console.log('Unique particulars found in data:', uniqueParticulars);
+      
+      // Create mock data with half of the particulars to create some invalid ledgers
+      const halfLength = Math.ceil(uniqueParticulars.length / 2);
+      const includedParticulars = uniqueParticulars.slice(0, halfLength);
+      const excludedParticulars = uniqueParticulars.slice(halfLength);
+      
+      // Add some of the particulars to the ledger options
+      ledgerOptions.value = [
+        ...includedParticulars,
+        'a2337 macbook air (laptop)',
+        'aarna ventures private limited',
+        'Office Rent',
+        'Salaries',
+        'Utilities',
+      ];
+      
+      console.log('Using mock ledger options:', ledgerOptions.value);
+      console.log('Particulars that should be invalid:', excludedParticulars);
+    }
+    
+    // Force a check for invalid ledgers after loading
+    setTimeout(() => {
+      // Get all unique particulars
+      const uniqueParticulars = [...new Set(items.value.map(item => item.particulars))];
+      
+      // Check each one
+      console.log('Checking all particulars against ledger options:');
+      uniqueParticulars.forEach(particular => {
+        const isInvalid = isInvalidLedger(particular);
+        console.log(`Particular "${particular}" is ${isInvalid ? 'INVALID' : 'valid'}`);
+      });
+      
+      const invalidCount = items.value.filter(item => isInvalidLedger(item.particulars)).length;
+      console.log(`Detected ${invalidCount} invalid ledgers out of ${items.value.length} items`);
+    }, 1000);
+    
+  } catch (err) {
+    console.error('Error fetching ledger names:', err);
+    error.value = 'Failed to load ledger names: ' + (err.response?.data?.error || err.message);
+  }
 }
 
 // Calculate the row counts (total, saved, sent to tally)
@@ -222,10 +256,64 @@ const calculateRowCounts = (data) => {
   rowCounts.value = counts
 }
 
+// Check if a ledger is not in the list of valid ledger options
+const isInvalidLedger = (ledger) => {
+  // Empty ledgers are invalid
+  if (!ledger) {
+    console.log('Empty ledger value detected - INVALID');
+    return true;
+  }
+  
+  // Normalize the ledger name
+  const normalizedLedger = ledger.toLowerCase().trim();
+  
+  // If we have no options, consider all ledgers valid (prevents false positives)
+  if (!ledgerOptions.value || ledgerOptions.value.length === 0) {
+    console.log(`No ledger options available, considering "${ledger}" valid by default`);
+    return false;
+  }
+  
+  // Check if the ledger is in our options (case insensitive)
+  const isValid = ledgerOptions.value.some(option => 
+    option.toLowerCase().trim() === normalizedLedger
+  );
+  
+  // For debugging
+  if (!isValid) {
+    console.log(`INVALID LEDGER: "${ledger}" not found in options`);
+    console.log('Available ledger options:', ledgerOptions.value);
+  }
+  
+  return !isValid;
+}
+
 // Save selected rows to database
 const handleSave = async () => {
   if (selectedRows.value.length === 0) {
     error.value = "Please select at least one row to save."
+    return
+  }
+  
+  // Validate ledgers
+  const rowsToValidate = selectedRows.value
+  const hasInvalidLedgers = rowsToValidate.some(row => 
+    isInvalidLedger(row.particulars)
+  )
+  
+  if (hasInvalidLedgers) {
+    error.value = "Please resolve all red-marked ledgers before saving."
+    return
+  }
+
+  // Check Dr/Cr match
+  let debit = 0, credit = 0
+  for (let row of rowsToValidate) {
+    if (row.dr_cr === "Dr") debit += Number(row.amount || 0)
+    else if (row.dr_cr === "Cr") credit += Number(row.amount || 0)
+  }
+  
+  if (debit !== credit) {
+    error.value = `Dr/Cr mismatch: Debit = ${debit}, Credit = ${credit}`
     return
   }
   
@@ -356,61 +444,6 @@ const handleDeleteRow = async (rowId) => {
   }
 }
 
-// Handle selection of rows by reference number
-const handleSelectionChange = (newSelectedRows) => {
-  // If nothing has been selected or everything has been deselected, just update
-  if (newSelectedRows.length === 0 || selectedRows.value.length === 0) {
-    selectedRows.value = newSelectedRows;
-    return;
-  }
-
-  // Find which row was just selected (or deselected)
-  let changedRow;
-  if (newSelectedRows.length > selectedRows.value.length) {
-    // A row was added - find the new row
-    changedRow = newSelectedRows.find(row => 
-      !selectedRows.value.some(selected => selected.id === row.id)
-    );
-  } else {
-    // A row was removed - find the removed row
-    changedRow = selectedRows.value.find(row => 
-      !newSelectedRows.some(selected => selected.id === row.id)
-    );
-  }
-
-  if (!changedRow) {
-    // If we can't determine what changed, just update normally
-    selectedRows.value = newSelectedRows;
-    return;
-  }
-
-  const refNo = changedRow.reference_no;
-  if (!refNo) {
-    // If there's no reference number, just update normally
-    selectedRows.value = newSelectedRows;
-    return;
-  }
-
-  // Find all rows with the same reference number
-  const relatedRows = items.value.filter(item => 
-    item.reference_no === refNo && 
-    item.status?.toLowerCase() !== 'send to tally'
-  );
-
-  if (newSelectedRows.length > selectedRows.value.length) {
-    // Adding selection - select all related rows
-    const rowsToAdd = relatedRows.filter(row => 
-      !selectedRows.value.some(selected => selected.id === row.id)
-    );
-    selectedRows.value = [...selectedRows.value, ...rowsToAdd];
-  } else {
-    // Removing selection - deselect all related rows
-    selectedRows.value = selectedRows.value.filter(row => 
-      row.reference_no !== refNo
-    );
-  }
-}
-
 // Refresh data 
 const refreshData = async () => {
   error.value = ''
@@ -446,6 +479,64 @@ const handleExportExcel = (data) => {
 // Custom CSV export
 const handleExportCsv = (data) => {
   console.log('Export to CSV:', data.length, 'rows')
+}
+
+// Handle item update from ExcelView
+const handleItemUpdate = async ({ originalRow, updatedRow, field, value }) => {
+  try {
+    console.log('Item updated:', { originalRow, updatedRow, field, value })
+    
+    // Show a message that we're updating
+    message.value = `Updating ${field} for row ${originalRow.id}...`
+    error.value = ''
+    
+    // Update the local item immediately for responsive UI
+    const index = items.value.findIndex(item => item.id === originalRow.id)
+    if (index !== -1) {
+      // Create a new array with the updated item
+      const updatedItems = [...items.value]
+      updatedItems[index] = { ...updatedItems[index], [field]: value }
+      items.value = updatedItems
+    }
+    
+    // In a real application, you would send this to your API
+    // This is a simulated API call
+    try {
+      // You would uncomment and use this in production
+      // const response = await axios.post('http://3.108.64.167:3001/api/updateJournalField', {
+      //   tempTable: tempTable.value,
+      //   rowId: originalRow.id,
+      //   field: field,
+      //   value: value
+      // })
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Show success message
+      message.value = `Updated ${field} for row ${originalRow.id}`
+      
+      // If we updated particulars, check if it's now a valid/invalid ledger
+      if (field === 'particulars') {
+        // Check if the new value is valid
+        const isValid = !isInvalidLedger(value)
+        console.log(`Updated particulars to "${value}" - Valid: ${isValid}`)
+      }
+    } catch (apiError) {
+      console.error('API error:', apiError)
+      error.value = `Failed to update: ${apiError.message}`
+      
+      // Revert the change in the UI
+      if (index !== -1) {
+        const revertedItems = [...items.value]
+        revertedItems[index] = { ...originalRow }
+        items.value = revertedItems
+      }
+    }
+  } catch (err) {
+    console.error('Error in handleItemUpdate:', err)
+    error.value = `Error updating item: ${err.message}`
+  }
 }
 
 // Load data from session storage or API on component mount
@@ -638,6 +729,16 @@ onMounted(() => {
   <!-- Excel View Component -->
   <VCard>
     <VCardText>
+      <VTooltip location="top">
+        <template v-slot:activator="{ props }">
+          <div v-bind="props" class="mb-2 text-caption d-flex align-center">
+            <VIcon icon="bx-info-circle" size="small" color="info" class="me-1" />
+            Double-click on any cell to edit its value
+          </div>
+        </template>
+        <span>You can edit most fields by double-clicking on them</span>
+      </VTooltip>
+      
       <ExcelView
         :headers="headers"
         :items="items"
@@ -652,10 +753,11 @@ onMounted(() => {
         :show-pagination="settings.showPagination"
         :searchable="settings.searchable"
         :items-per-page="settings.itemsPerPage"
+        :editable="settings.editable"
         v-model:selected="selectedRows"
-        @update:selected="handleSelectionChange"
         @row-click="handleRowClick"
         @cell-click="handleCellClick"
+        @update:item="handleItemUpdate"
       >
         <!-- Empty title slot to remove the title -->
         <template #title></template>
@@ -674,6 +776,32 @@ onMounted(() => {
           >
             {{ value }}
           </VChip>
+        </template>
+        
+        <!-- Custom particulars cell to validate ledgers -->
+        <template #item.particulars="{ value, item }">
+          <div 
+            class="ledger-cell"
+            :class="{ 'invalid-ledger-cell': isInvalidLedger(value) }"
+            :style="isInvalidLedger(value) ? 
+              'border: 4px solid #FF0000 !important; background-color: rgba(255, 0, 0, 0.1); color: #FF0000; font-weight: bold; padding: 4px 8px; border-radius: 4px; box-shadow: 0 0 5px #FF0000;' : ''"
+          >
+            {{ value }}
+            <VIcon
+              v-if="isInvalidLedger(value)"
+              icon="bx-error-circle"
+              color="error"
+              size="20"
+              class="ms-1"
+            >
+              <VTooltip activator="parent" location="top">
+                <div style=" font-weight: bold;max-inline-size: 300px; text-align: center;">
+                  Ledger "{{ value }}" is not added in the system.<br>
+                  Please add this ledger before proceeding.
+                </div>
+              </VTooltip>
+            </VIcon>
+          </div>
         </template>
         
         <!-- Custom actions for each row -->
@@ -730,5 +858,50 @@ onMounted(() => {
 
 .max-width-300 {
   max-inline-size: 300px;
+}
+
+/* Add styles for invalid ledger cells - increased visibility */
+.ledger-cell {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  min-block-size: 32px;
+  padding-block: 4px;
+  padding-inline: 4px;
+}
+
+.invalid-ledger-cell {
+  /* !important flags to ensure these styles are applied */
+  border: 4px solid #f00 !important;
+  border-radius: 4px !important;
+  background-color: rgba(255, 0, 0, 10%) !important;
+  box-shadow: 0 0 5px #f00 !important;
+  color: #f00 !important;
+  font-weight: bold !important;
+  padding-block: 4px !important;
+  padding-inline: 8px !important;
+}
+
+/* Styles for editable fields */
+.excel-view .v-table .v-table__wrapper table td {
+  position: relative;
+  cursor: text;
+}
+
+.excel-view .v-table .v-table__wrapper table td:hover::after {
+  position: absolute;
+  border-width: 0 8px 8px 0;
+  border-style: solid;
+  border-color: transparent rgba(var(--v-theme-primary), 0.6) transparent transparent;
+  block-size: 0;
+  content: "";
+  inline-size: 0;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+}
+
+.excel-view .v-text-field {
+  padding: 0;
+  margin: -8px;
 }
 </style> 
