@@ -11,11 +11,12 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+
   // Table appearance
   density: {
     type: String,
     default: 'default',
-    validator: (val) => ['default', 'comfortable', 'compact'].includes(val),
+    validator: val => ['default', 'comfortable', 'compact'].includes(val),
   },
   height: {
     type: [String, Number],
@@ -37,6 +38,7 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+
   // Functionality
   selectable: {
     type: Boolean,
@@ -54,6 +56,7 @@ const props = defineProps({
     type: String,
     default: 'No data available',
   },
+
   // Pagination
   itemsPerPage: {
     type: Number,
@@ -63,6 +66,7 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+
   // Sorting
   sortable: {
     type: Boolean,
@@ -72,11 +76,12 @@ const props = defineProps({
     type: Object,
     default: () => ({ key: '', order: 'asc' }),
   },
+
   // Filtering
   searchable: {
     type: Boolean,
     default: true,
-  }
+  },
 })
 
 const emit = defineEmits([
@@ -87,6 +92,7 @@ const emit = defineEmits([
   'page-change',
   'items-per-page-change',
   'search',
+  'filter',
 ])
 
 // Search functionality
@@ -96,11 +102,11 @@ const columnFilters = ref({})
 // Date range filter
 const dateRange = ref({
   from: '',
-  to: ''
+  to: '',
 })
 
-const searchResults = computed(() => {
-  const filtered = filteredItems.value.filter(item => {
+const searchResults = computed(() => 
+  filteredItems.value.filter(item => {
     // Apply column-specific filters
     for (const [key, value] of Object.entries(columnFilters.value)) {
       if (value && item[key] !== undefined) {
@@ -134,22 +140,22 @@ const searchResults = computed(() => {
     // Apply global search if provided
     if (searchQuery.value) {
       const query = searchQuery.value.toLowerCase()
+
       return Object.values(item).some(value => 
         value !== null && 
         value !== undefined && 
-        String(value).toLowerCase().includes(query)
+        String(value).toLowerCase().includes(query),
       )
     }
     
     return true
-  })
-  
-  return filtered
-})
+  }),
+)
 
 // Sorting
 const sortBy = ref(props.initialSortBy)
-const sortItems = (items) => {
+
+const sortItems = items => {
   if (!sortBy.value.key) return items
   
   return [...items].sort((a, b) => {
@@ -159,11 +165,12 @@ const sortItems = (items) => {
     if (aValue === bValue) return 0
     
     const result = aValue > bValue ? 1 : -1
+
     return sortBy.value.order === 'asc' ? result : -result
   })
 }
 
-const handleSort = (key) => {
+const handleSort = key => {
   if (!props.sortable) return
   
   if (sortBy.value.key === key) {
@@ -185,24 +192,25 @@ const filteredItems = computed(() => {
 
 const totalPages = computed(() => {
   if (filteredItems.value.length === 0) return 1
+  
   return Math.ceil(filteredItems.value.length / computedItemsPerPage.value)
 })
 
 const paginatedItems = computed(() => {
-  if (!props.showPagination) return searchResults.value;
+  if (!props.showPagination) return searchResults.value
   
-  const start = (currentPage.value - 1) * computedItemsPerPage.value;
-  const end = start + computedItemsPerPage.value;
+  const start = (currentPage.value - 1) * computedItemsPerPage.value
+  const end = start + computedItemsPerPage.value
   
-  return searchResults.value.slice(start, end);
+  return searchResults.value.slice(start, end)
 })
 
-const handlePageChange = (page) => {
+const handlePageChange = page => {
   currentPage.value = page
   emit('page-change', page)
 }
 
-const handleItemsPerPageChange = (itemsPerPage) => {
+const handleItemsPerPageChange = itemsPerPage => {
   computedItemsPerPage.value = itemsPerPage
   currentPage.value = 1
   emit('items-per-page-change', itemsPerPage)
@@ -211,7 +219,7 @@ const handleItemsPerPageChange = (itemsPerPage) => {
 // Selection
 const selectedRows = ref([])
 
-const handleSelectAll = (event) => {
+const handleSelectAll = event => {
   selectedRows.value = event.target.checked ? [...paginatedItems.value] : []
   emit('update:selected', selectedRows.value)
 }
@@ -228,7 +236,7 @@ const handleSelectRow = (row, event) => {
   emit('update:selected', selectedRows.value)
 }
 
-const isRowSelected = (row) => {
+const isRowSelected = row => {
   return selectedRows.value.includes(row)
 }
 
@@ -281,9 +289,15 @@ watch(searchQuery, () => {
 })
 
 // Update computedItemsPerPage when prop changes
-watch(() => props.itemsPerPage, (newValue) => {
+watch(() => props.itemsPerPage, newValue => {
   computedItemsPerPage.value = newValue
 })
+
+// Add watcher for searchResults
+watch(searchResults, newResults => {
+  // Emit filter event with the filtered data
+  emit('filter', newResults)
+}, { immediate: true })
 
 onMounted(() => {
   computedItemsPerPage.value = props.itemsPerPage
@@ -315,9 +329,15 @@ onMounted(() => {
     </div>
     
     <!-- Main table wrapper -->
-    <div class="excel-view__main-wrapper" :class="{ 'excel-view__main-wrapper--bordered': bordered }">
+    <div
+      class="excel-view__main-wrapper"
+      :class="{ 'excel-view__main-wrapper--bordered': bordered }"
+    >
       <!-- Date Range Filter outside table -->
-      <div v-if="searchable" class="excel-view__date-range-container">
+      <div
+        v-if="searchable"
+        class="excel-view__date-range-container"
+      >
         <div class="d-flex flex-wrap align-center gap-3">
           <div class="d-flex align-center">
             <span class="text-body-2 font-weight-medium me-2">FROM</span>
@@ -329,6 +349,7 @@ onMounted(() => {
               placeholder="dd-mm-yyyy"
               variant="outlined"
               class="date-range-field"
+              @click.stop
             />
           </div>
           <div class="d-flex align-center">
@@ -341,14 +362,15 @@ onMounted(() => {
               placeholder="dd-mm-yyyy"
               variant="outlined"
               class="date-range-field"
+              @click.stop
             />
           </div>
           <VBtn
             variant="tonal"
             color="secondary"
             size="small"
-            @click="resetFilters"
             class="ms-auto"
+            @click="resetFilters"
           >
             Clear Filters
           </VBtn>
@@ -380,7 +402,11 @@ onMounted(() => {
                 class="excel-view__th excel-view__th--sr-no" 
                 :class="{ 'excel-view__th--with-checkbox': selectable }"
               >
-                <div class="excel-view__th-content">
+                <div 
+                  class="excel-view__th-content"
+                  :class="{ 'cursor-pointer': sortable }"
+                  @click="sortable && handleSort('id')"
+                >
                   <div class="d-flex align-center w-100">
                     <VCheckbox
                       v-if="selectable"
@@ -396,12 +422,15 @@ onMounted(() => {
                     v-if="sortable"
                     icon="bx-chevron-down"
                     size="18"
-                    class="invisible"
+                    :class="{ 'invisible': sortBy.key !== 'id' }"
                   />
                 </div>
                 
                 <!-- Column search within the header -->
-                <div v-if="searchable" class="excel-view__th-search mt-2">
+                <div
+                  v-if="searchable"
+                  class="excel-view__th-search mt-2"
+                >
                   <VTextField
                     v-model="columnFilters['id']"
                     density="compact"
@@ -416,7 +445,7 @@ onMounted(() => {
               
               <!-- Regular data columns (skip the ID column since we merged it) -->
               <th
-                v-for="header in headers.filter(h => h.key !== 'id')"
+                v-for="header in headers.filter(h => h.key !== 'id' && h.key !== 'srNo')"
                 :key="header.key"
                 class="excel-view__th"
                 :class="{ 
@@ -425,9 +454,12 @@ onMounted(() => {
                   [`excel-view__th--align-${header.align || 'start'}`]: true 
                 }"
                 :style="header.width ? { width: header.width } : {}"
-                @click="sortable && header.sortable !== false && handleSort(header.key)"
               >
-                <div class="excel-view__th-content">
+                <div 
+                  class="excel-view__th-content"
+                  :class="{ 'cursor-pointer': sortable && header.sortable !== false }"
+                  @click="sortable && header.sortable !== false && handleSort(header.key)"
+                >
                   <span>{{ header.title }}</span>
                   <VIcon
                     v-if="sortable && header.sortable !== false"
@@ -440,7 +472,10 @@ onMounted(() => {
                 </div>
                 
                 <!-- Column search within the header -->
-                <div v-if="searchable && header.key !== 'date'" class="excel-view__th-search mt-2">
+                <div
+                  v-if="searchable && header.key !== 'date'"
+                  class="excel-view__th-search mt-2"
+                >
                   <VTextField
                     v-model="columnFilters[header.key]"
                     density="compact"
@@ -455,9 +490,16 @@ onMounted(() => {
               
               <!-- Slot for custom header actions column -->
               <slot name="header-actions">
-                <th v-if="$slots['item-actions']" class="excel-view__th excel-view__th--actions" width="60">
+                <th
+                  v-if="$slots['item-actions']"
+                  class="excel-view__th excel-view__th--actions"
+                  width="60"
+                >
                   <div class="excel-view__th-content justify-center">
-                    <VIcon icon="bx-trash" size="20" />
+                    <VIcon
+                      icon="bx-trash"
+                      size="20"
+                    />
                   </div>
                 </th>
               </slot>
@@ -467,20 +509,33 @@ onMounted(() => {
           <!-- Table body -->
           <tbody class="excel-view__body">
             <!-- Loading state -->
-            <tr v-if="loading" class="excel-view__loading">
+            <tr
+              v-if="loading"
+              class="excel-view__loading"
+            >
               <td :colspan="headers.length + (($slots['item-actions']) ? 1 : 0)">
                 <div class="d-flex align-center justify-center py-6">
-                  <VProgressCircular indeterminate color="primary" />
-                  <span class="ml-2">{{ loadingText }}</span>
+                  <VProgressCircular
+                    indeterminate
+                    color="primary"
+                  />
+                  <span class="ms-2">{{ loadingText }}</span>
                 </div>
               </td>
             </tr>
             
             <!-- Empty state -->
-            <tr v-else-if="searchResults.length === 0" class="excel-view__empty">
+            <tr
+              v-else-if="searchResults.length === 0"
+              class="excel-view__empty"
+            >
               <td :colspan="headers.length + (($slots['item-actions']) ? 1 : 0)">
                 <div class="d-flex justify-center align-center text-center py-6">
-                  <VIcon icon="bx-info-circle" color="secondary" class="mr-2" />
+                  <VIcon
+                    icon="bx-info-circle"
+                    color="secondary"
+                    class="me-2"
+                  />
                   <span>{{ searchQuery ? 'No matching records found' : noDataText }}</span>
                 </div>
               </td>
@@ -506,13 +561,13 @@ onMounted(() => {
                       class="me-3 sr-checkbox"
                       @change="(e) => handleSelectRow(item, e)"
                     />
-                    <span class="ms-2 text-right">{{ item.id }}</span>
+                    <span class="ms-2 text-right">{{ item.srNo || item.id }}</span>
                   </div>
                 </td>
                 
                 <!-- Regular data cells (skip the ID column since we merged it) -->
                 <td
-                  v-for="header in headers.filter(h => h.key !== 'id')"
+                  v-for="header in headers.filter(h => h.key !== 'id' && h.key !== 'srNo')"
                   :key="header.key"
                   class="excel-view__td"
                   :class="`excel-view__td--align-${header.align || 'start'}`"
@@ -530,7 +585,10 @@ onMounted(() => {
                 </td>
                 
                 <!-- Actions cell with only delete icon -->
-                <td v-if="$slots['item-actions']" class="excel-view__td excel-view__td--actions">
+                <td
+                  v-if="$slots['item-actions']"
+                  class="excel-view__td excel-view__td--actions"
+                >
                   <slot 
                     name="item-actions" 
                     :item="item"
@@ -846,6 +904,10 @@ onMounted(() => {
       transform: scale(0.85);
     }
   }
+}
+
+.cursor-pointer {
+  cursor: pointer;
 }
 
 // Responsive adjustments

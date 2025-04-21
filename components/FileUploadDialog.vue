@@ -22,7 +22,8 @@ const props = defineProps({
   },
   uploadApi: {
     type: String,
-    required: true,
+    required: false,
+    default: '',  // Now optional
   },
   requiredFields: {
     type: Array,
@@ -39,7 +40,7 @@ const props = defineProps({
 })
 
 // eslint-disable-next-line camelcase
-const emit = defineEmits(['update:show', 'uploadSuccess'])
+const emit = defineEmits(['update:show', 'uploadSuccess', 'file-selected', 'confirm-upload'])
 
 // Forward compatibility - map upload-success to uploadSuccess
 const emitUploadSuccess = data => {
@@ -73,18 +74,29 @@ onMounted(() => {
 
 const handleFileUpload = event => {
   error.value = ''
+  let file = null
 
-  const file = event.target?.files?.[0] || event
+  // If it’s a drop event, grab the file from dataTransfer
+  if (event.dataTransfer && event.dataTransfer.files?.length) {
+    file = event.dataTransfer.files[0]
+  }
+
+  // Otherwise it came from the <input>
+  else if (event.target?.files?.length) {
+    file = event.target.files[0]
+  }
+
   if (!file) return
 
   if (file.size > props.maxFileSize) {
-    error.value = "File size exceeds 50MB limit."
+    error.value = "File size exceeds limit."
     
     return
   }
 
   selectedFile.value = file
 }
+
 
 // Form data preparation is now handled directly in the submitFile function
 // to avoid issues with selectedFile being null after dialog is closed
@@ -111,7 +123,7 @@ const sendReceiptsToDatabase = async (data, tempTableName) => {
       console.log(`Applying SQL fix for table ${tempTableName}...`)
       
       // Simple request to try to fix the table with raw SQL
-      const fixResponse = await fetch('http://localhost:3001/api/executeSql', {
+      const fixResponse = await fetch('https://api.tallyfy.in/api/executeSql', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -151,7 +163,7 @@ const sendReceiptsToDatabase = async (data, tempTableName) => {
     })
     
     // Send the data to the insertParsedReceipts endpoint
-    const response = await fetch('http://localhost:3001/api/insertParsedReceipts', {
+    const response = await fetch('https://api.tallyfy.in/api/insertParsedReceipts', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -190,6 +202,14 @@ const sendReceiptsToDatabase = async (data, tempTableName) => {
 
 const uploadFile = async () => {
   if (!selectedFile.value) return
+  
+  // if parent wants to extract & then handle the upload themselves,
+  // just emit and bail out
+  if (!props.uploadApi) {
+    emit('confirm-upload', selectedFile.value)
+    
+    return
+  }
   
   // Validate bank selection if required
   if (isBankRequired.value && !isBankSelected.value) {
@@ -290,7 +310,7 @@ const submitFile = async () => {
         console.log('Creating temp table with data:', createTempTableData)
         
         // Call the API to create a temp table
-        const tempTableResponse = await fetch('http://localhost:3001/api/createTempTable', {
+        const tempTableResponse = await fetch('https://api.tallyfy.in/api/createTempTable', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -409,7 +429,7 @@ const submitFile = async () => {
     
     // Use different API endpoint for PDF files
     const apiEndpoint = isPdf 
-      ? 'http://3.108.64.167:8000/process-pdf' 
+      ? 'https://api.tallyfy.in/process-pdf' 
       : props.uploadApi
     
     console.log(`Uploading ${isPdf ? 'PDF' : 'Excel'} file to: ${apiEndpoint}`)
@@ -594,6 +614,8 @@ const closeDialog = () => {
           class="border-2 border-dashed rounded-lg pa-8 mb-6 text-center"
           :color="selectedFile ? 'primary' : 'default'"
           :class="{'border-primary': selectedFile}"
+          @dragover.prevent
+          @drop.prevent="handleFileUpload"
         >
           <div v-if="!selectedFile">
             <VIcon

@@ -30,6 +30,21 @@ const handleRowClick = item => {
     const tempTableId = item.raw.temp_table
     const filename = item.raw.uploaded_file
     
+    // Store necessary data in sessionStorage (similar to journelexcelview approach)
+    sessionStorage.setItem('userEmail', userEmail.value)
+    sessionStorage.setItem('selectedCompany', selectedCompany.value?.company_id || '')
+    sessionStorage.setItem('selectedCompanyName', selectedCompany.value?.company_name || '')
+    sessionStorage.setItem('tempTable', tempTableId)
+    sessionStorage.setItem('bankName', item.raw.bank_name || '')
+    
+    console.log('Stored in sessionStorage:', {
+      userEmail: userEmail.value,
+      selectedCompany: selectedCompany.value?.company_id || '',
+      selectedCompanyName: selectedCompany.value?.company_name || '',
+      tempTable: tempTableId,
+      bankName: item.raw.bank_name || '',
+    })
+    
     console.log(`Navigating to bankingview with id=${tempTableId}`)
     
     // Use the exact page name as it appears in the file system
@@ -57,7 +72,7 @@ const fetchTempTables = async () => {
 
     console.log('Using company ID for API call:', companyId)
 
-    const apiUrl = `http://3.108.64.167:3001/api/getAllTempTables?email=${encodeURIComponent(userEmail.value)}&company=${encodeURIComponent(companyId)}`
+    const apiUrl = `https://api.tallyfy.in/api/getAllTempTables?email=${encodeURIComponent(userEmail.value)}&company=${encodeURIComponent(companyId)}`
     
     console.log('Calling API with URL:', apiUrl)
 
@@ -204,7 +219,7 @@ const fetchBankNames = async () => {
 
     const companyId = selectedCompany.value.company_id
     
-    const response = await fetch(`http://3.108.64.167:3001/api/getBankNames?company=${encodeURIComponent(companyId)}`)
+    const response = await fetch(`https://api.tallyfy.in/api/getBankNames?company=${encodeURIComponent(companyId)}`)
     
     if (!response.ok) {
       throw new Error('Failed to fetch bank names')
@@ -251,7 +266,7 @@ const selectedBank = ref(null)
 const uploadApiUrl = computed(() => {
   const companyId = selectedCompany.value?.company_id || ''
   
-  return `http://3.108.64.167:3001/api/uploadBankingFile?email=${encodeURIComponent(userEmail.value)}&company=${encodeURIComponent(companyId)}`
+  return `https://api.tallyfy.in/api/uploadBankingFile?email=${encodeURIComponent(userEmail.value)}&company=${encodeURIComponent(companyId)}`
 })
 
 // Update the extra data to include the selected bank and file details
@@ -383,7 +398,7 @@ const confirmDelete = async () => {
     console.log('Deleting item with data:', deleteData)
     
     // Call the delete API
-    const response = await fetch('http://3.108.64.167:3001/api/deleteTempTable', {
+    const response = await fetch('https://api.tallyfy.in/api/deleteTempTable', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

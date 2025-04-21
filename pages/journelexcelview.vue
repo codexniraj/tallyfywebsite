@@ -18,10 +18,11 @@ const userEmail = ref('')
 const selectedCompany = ref('')
 const ledgerOptions = ref([])
 const invalidLedgers = ref([])
+
 const rowCounts = ref({
   total: 0,
   saved: 0,
-  sentToTally: 0
+  sentToTally: 0,
 })
 
 // Table settings with defaults matching the requirements
@@ -35,19 +36,20 @@ const settings = ref({
   selectable: true,
   showPagination: true,
   searchable: true,
-  itemsPerPage: 10
+  itemsPerPage: 10,
 })
 
 // Add Ledger Dialog
 const showAddLedgerDialog = ref(false)
 
 // Fetch data from the API
-const fetchData = async (tableName) => {
+const fetchData = async tableName => {
   console.log('Fetching data for table:', tableName)
   if (!tableName) {
     console.error('No table name provided to fetchData')
     error.value = 'No table name provided'
     loading.value = false
+    
     return
   }
 
@@ -57,13 +59,14 @@ const fetchData = async (tableName) => {
     
     // Make API request with timestamp to prevent caching
     const timestamp = Date.now()
+
     console.log('Making API request to get journal data')
     
     // In real implementation, use your API endpoint
     const res = await axios.get('http://3.108.64.167:3001/api/getJournalData', {
       params: { 
-        tempTable: tableName
-      }
+        tempTable: tableName,
+      },
     })
 
     console.log('API response received:', res.data)
@@ -73,6 +76,7 @@ const fetchData = async (tableName) => {
         console.warn('No rows returned from backend')
         error.value = 'No data available'
         loading.value = false
+        
         return
       }
 
@@ -80,11 +84,13 @@ const fetchData = async (tableName) => {
         console.error('Fetched data missing ID:', res.data[0])
         error.value = 'Fetched data missing ID'
         loading.value = false
+        
         return
       }
 
       // Dynamically create headers from the first data row
       const firstRow = res.data[0]
+
       headers.value = Object.keys(firstRow).map(key => {
         // Default configuration for each column
         const config = {
@@ -121,6 +127,7 @@ const fetchData = async (tableName) => {
       
       // Get any metadata like invalid ledgers
       const uploadMeta = JSON.parse(sessionStorage.getItem('uploadMeta')) || {}
+
       invalidLedgers.value = uploadMeta.invalidLedgers || []
       
       console.log('Data loaded successfully:', items.value.length, 'rows')
@@ -144,6 +151,7 @@ const fetchLedgerNames = async () => {
     
     if (!userEmail.value || !selectedCompany.value) {
       console.error('Missing user email or company for ledger fetch')
+      
       return
     }
     
@@ -151,8 +159,8 @@ const fetchLedgerNames = async () => {
     const res = await axios.get('http://3.108.64.167:3001/api/getMergedLedgerNames', {
       params: { 
         email: userEmail.value, 
-        company: selectedCompany.value 
-      }
+        company: selectedCompany.value, 
+      },
     })
     
     console.log('Ledger names received:', res.data)
@@ -168,10 +176,18 @@ const generateSampleData = (count = 50) => {
   const statusOptions = ['pending', 'saved', 'send to tally']
   const drCrOptions = ['Dr', 'Cr']
   const costCenters = ['Marketing', 'Sales', 'Finance', 'HR', 'IT', 'Admin', 'Operations']
+
   const particulars = [
-    'Office Rent', 'Salaries', 'Utilities', 'Internet Services', 
-    'Software Subscriptions', 'Travel Expenses', 'Marketing Campaign', 
-    'Equipment Purchase', 'Legal Services', 'Consulting Fees'
+    'Office Rent',
+    'Salaries',
+    'Utilities',
+    'Internet Services', 
+    'Software Subscriptions',
+    'Travel Expenses',
+    'Marketing Campaign', 
+    'Equipment Purchase',
+    'Legal Services',
+    'Consulting Fees',
   ]
   
   return Array.from({ length: count }, (_, i) => {
@@ -198,13 +214,13 @@ const generateSampleData = (count = 50) => {
 }
 
 // Calculate the row counts (total, saved, sent to tally)
-const calculateRowCounts = (data) => {
+const calculateRowCounts = data => {
   if (!data || !Array.isArray(data)) return
   
   const counts = {
     total: data.length,
     saved: 0,
-    sentToTally: 0
+    sentToTally: 0,
   }
   
   data.forEach(row => {
@@ -226,6 +242,7 @@ const calculateRowCounts = (data) => {
 const handleSave = async () => {
   if (selectedRows.value.length === 0) {
     error.value = "Please select at least one row to save."
+    
     return
   }
   
@@ -247,6 +264,7 @@ const handleSave = async () => {
       if (selectedRows.value.some(selected => selected.id === item.id)) {
         return { ...item, status: 'saved' }
       }
+      
       return item
     })
     
@@ -266,6 +284,7 @@ const handleSave = async () => {
 const handleSendToTally = async () => {
   if (selectedRows.value.length === 0) {
     error.value = "Please select at least one row to send to Tally."
+    
     return
   }
   
@@ -293,6 +312,7 @@ const handleSendToTally = async () => {
       if (selectedRows.value.some(selected => selected.id === item.id)) {
         return { ...item, status: 'send to tally' }
       }
+      
       return item
     })
     
@@ -321,9 +341,10 @@ const save = () => {
 }
 
 // Handle row deletion
-const handleDeleteRow = async (rowId) => {
+const handleDeleteRow = async rowId => {
   if (!rowId) {
     console.error('No row ID provided for deletion')
+    
     return
   }
   
@@ -339,7 +360,7 @@ const handleDeleteRow = async (rowId) => {
     // Send delete request to API
     const response = await axios.post('http://3.108.64.167:3001/api/deleteJournalRow', { 
       tempTable: tempTable.value,
-      rowId: rowId
+      rowId: rowId,
     })
     
     console.log('Delete response:', response.data)
@@ -369,12 +390,12 @@ const handleAddLedger = () => {
   showAddLedgerDialog.value = true
 }
 
-const handleLedgerAdded = (ledgerName) => {
+const handleLedgerAdded = ledgerName => {
   message.value = `Ledger "${ledgerName}" added successfully`
 }
 
 // Handle row click
-const handleRowClick = (row) => {
+const handleRowClick = row => {
   console.log('Row clicked:', row)
 }
 
@@ -384,12 +405,12 @@ const handleCellClick = ({ row, header }) => {
 }
 
 // Custom Excel export
-const handleExportExcel = (data) => {
+const handleExportExcel = data => {
   console.log('Export to Excel:', data.length, 'rows')
 }
 
 // Custom CSV export
-const handleExportCsv = (data) => {
+const handleExportCsv = data => {
   console.log('Export to CSV:', data.length, 'rows')
 }
 
@@ -401,18 +422,20 @@ const loadInitialData = async () => {
     // Get values from session storage
     userEmail.value = sessionStorage.getItem('userEmail')
     selectedCompany.value = sessionStorage.getItem('selectedCompany')
+
     const sessionTable = sessionStorage.getItem('tempTable')
     
     console.log('Session storage values:', {
       userEmail: userEmail.value,
       selectedCompany: selectedCompany.value,
-      tempTable: sessionTable
+      tempTable: sessionTable,
     })
     
     if (!userEmail.value || !selectedCompany.value) {
       console.error('Missing user email or company in session storage')
       error.value = "Missing user email or company"
       loading.value = false
+      
       return
     }
     
@@ -428,17 +451,19 @@ const loadInitialData = async () => {
     } else {
       // If no table in sessionStorage, get the latest from API
       console.log('No table in session storage, fetching latest upload')
+
       const uploadRes = await axios.get('http://3.108.64.167:3001/api/getUserJournelUploads', {
         params: { 
           email: userEmail.value, 
-          company: selectedCompany.value 
-        }
+          company: selectedCompany.value, 
+        },
       })
       
       console.log('User uploads response:', uploadRes.data)
       
       if (uploadRes.data && uploadRes.data.length > 0) {
         const latestTable = uploadRes.data[0].temp_table
+
         tempTable.value = latestTable
         console.log('Using latest table from API:', tempTable.value)
         await fetchData(latestTable)
@@ -474,7 +499,10 @@ onMounted(() => {
           color="secondary"
           to="/journal"
         >
-          <VIcon icon="bx-chevron-left" size="28" />
+          <VIcon
+            icon="bx-chevron-left"
+            size="28"
+          />
         </VBtn>
         <div>Journal Excel Data</div>
       </div>
@@ -489,7 +517,10 @@ onMounted(() => {
     </VCardTitle>
     
     <!-- Error and success messages -->
-    <VCardText v-if="error || message" class="pt-0">
+    <VCardText
+      v-if="error || message"
+      class="pt-0"
+    >
       <VAlert
         v-if="error"
         type="error"
@@ -549,8 +580,12 @@ onMounted(() => {
             class="counter-card"
           >
             <div class="counter-content">
-              <div class="counter-title">Total Rows</div>
-              <div class="counter-value">{{ rowCounts.total }}</div>
+              <div class="counter-title">
+                Total Rows
+              </div>
+              <div class="counter-value">
+                {{ rowCounts.total }}
+              </div>
             </div>
           </VCard>
           
@@ -560,8 +595,12 @@ onMounted(() => {
             class="counter-card"
           >
             <div class="counter-content">
-              <div class="counter-title">Saved</div>
-              <div class="counter-value">{{ rowCounts.saved }}</div>
+              <div class="counter-title">
+                Saved
+              </div>
+              <div class="counter-value">
+                {{ rowCounts.saved }}
+              </div>
             </div>
           </VCard>
           
@@ -571,8 +610,12 @@ onMounted(() => {
             class="counter-card"
           >
             <div class="counter-content">
-              <div class="counter-title">Sent to Tally</div>
-              <div class="counter-value">{{ rowCounts.sentToTally }}</div>
+              <div class="counter-title">
+                Sent to Tally
+              </div>
+              <div class="counter-value">
+                {{ rowCounts.sentToTally }}
+              </div>
             </div>
           </VCard>
         </div>
@@ -584,6 +627,7 @@ onMounted(() => {
   <VCard>
     <VCardText>
       <ExcelView
+        v-model:selected="selectedRows"
         :headers="headers"
         :items="items"
         :density="settings.density"
@@ -597,12 +641,11 @@ onMounted(() => {
         :show-pagination="settings.showPagination"
         :searchable="settings.searchable"
         :items-per-page="settings.itemsPerPage"
-        v-model:selected="selectedRows"
         @row-click="handleRowClick"
         @cell-click="handleCellClick"
       >
         <!-- Empty title slot to remove the title -->
-        <template #title></template>
+        <template #title />
         
         <!-- Custom actions slot to hide export buttons -->
         <template #actions>
