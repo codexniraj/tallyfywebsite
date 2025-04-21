@@ -1,4 +1,5 @@
 <script setup>
+import axios from 'axios'
 import { computed, onMounted, ref } from 'vue'
 import * as XLSX from 'xlsx'
 
@@ -7,7 +8,7 @@ const props = defineProps({
   title: { type: String, default: 'Upload File' },
   maxFileSize: { type: Number, default: 50 * 1024 * 1024 }, // 50MB
   acceptedFormats: { type: String, default: '.xls,.xlsx' },
-  uploadApi: { type: String, required: false },
+  uploadApi: { type: String, required: false, default: '', },
   requiredFields: { type: Array, default: () => [] },
   extraData: { type: Object, default: () => ({}) },
   redirectPath: { type: String, default: '' },
@@ -34,14 +35,46 @@ const uploading = ref(false)
 const fileInput = ref(null)
 const isBankRequired = ref(false)
 
+// Store parsed data for Excel files
+const parsedJsonData = ref(null)
+
 const isBankSelected = computed(() => {
   return !isBankRequired.value || !!props.extraData.bank
+})
+
+// Add computed property to track button disabled state
+const isUploadButtonDisabled = computed(() => {
+  const fileCondition = !selectedFile.value;
+  const bankCondition = isBankRequired.value && !isBankSelected.value && !props.uploadApi?.includes('uploadJournel');
+  const isDisabled = fileCondition || bankCondition;
+  
+  // Log the conditions affecting the button state
+  console.log('Upload button state:', {
+    fileSelected: !!selectedFile.value,
+    bankRequired: isBankRequired.value,
+    bankSelected: isBankSelected.value,
+    isJournal: props.uploadApi?.includes('uploadJournel'),
+    buttonDisabled: isDisabled
+  });
+  
+  return isDisabled;
 })
 
 onMounted(() => {
   setTimeout(() => {
     const slot = document.querySelector('.bank-selection-slot-wrapper')
-    isBankRequired.value = !!slot
+    const hasSlot = !!slot
+    console.log('Bank selection slot found:', hasSlot)
+    console.log('Current API endpoint:', props.uploadApi)
+    
+    // For Journal uploads, never require bank selection
+    if (props.uploadApi?.includes('uploadJournel')) {
+      console.log('Journal upload detected - bank selection NOT required')
+      isBankRequired.value = false
+    } else {
+      isBankRequired.value = hasSlot
+      console.log('Bank required set to:', isBankRequired.value)
+    }
   }, 100)
 })
 
@@ -67,7 +100,7 @@ const sendReceiptsToDatabase = async (data, tempTableName) => {
       upload_id: tempTableName,
       receipts,
     }
-    const res = await fetch('http://3.108.64.167:3001/api/insertParsedReceipts', {
+    const res = await fetch('https://api.tallyfy.in/api/insertParsedReceipts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -79,6 +112,11 @@ const sendReceiptsToDatabase = async (data, tempTableName) => {
     throw e
   }
 }
+
+// Check if this is a ledger upload
+const isLedgerUpload = computed(() => {
+  return props.uploadApi && props.uploadApi.includes('uploadExcelLedger')
+})
 
 const uploadFile = async () => {
   if (!selectedFile.value) return
@@ -93,6 +131,12 @@ const uploadFile = async () => {
     error.value = 'Only Excel (.xls, .xlsx) and PDF (.pdf) files are allowed.'
     return
   }
+  
+  // Debug upload type
+  console.log('Upload API endpoint:', props.uploadApi);
+  console.log('Is Ledger upload?', isLedgerUpload.value);
+  console.log('Is Journal upload?', props.uploadApi?.includes('uploadJournel'));
+  
   if (!props.uploadApi && isExcel) {
     emit('confirm-upload', selectedFile.value)
     return
@@ -113,7 +157,6 @@ const uploadFile = async () => {
 
         if (!json || json.length === 0) {
           error.value = "Excel file is empty or unreadable."
-          
           return
         }
 
@@ -123,13 +166,82 @@ const uploadFile = async () => {
           const missingHeaders = props.requiredFields.filter(key => !keys.includes(key))
           if (missingHeaders.length > 0) {
             error.value = `Missing compulsory headers: ${missingHeaders.join(', ')}`
-            
             return
           }
         }
 
-        // Submit the validated Excel file
-        await submitFile()
+        // Store parsed data in component state instead of window
+        parsedJsonData.value = json
+
+        // Special handling for Ledger uploads
+        if (isLedgerUpload.value) {
+          try {
+            uploading.value = true
+            
+            // First check if file with this name exists (like the React implementation)
+            const checkResponse = await axios.post(props.uploadApi, {
+              email: props.extraData.email || '',
+              company: props.extraData.company || '',
+              data: [], // Empty data for check
+              uploadedFileName: selectedFile.value.name,
+              action: "check"
+            });
+            
+            const result = checkResponse.data;
+
+            // If duplicate file exists, handle it
+            if (result.duplicate) {
+              uploading.value = false;
+              
+              if (result.identical) {
+                // Same file with identical data
+                error.value = "This file with identical data has already been uploaded.";
+                return;
+              }
+              
+              // For different data but same name, proceed with upload
+              console.log("File exists but contains different data. Proceeding with upload.");
+            }
+            
+            // For ledger, use direct upload
+            await uploadLedgerData();
+          } catch (err) {
+            console.error("Error during ledger file processing:", err);
+            error.value = err.response?.data?.error || "Failed to process ledger file.";
+            uploading.value = false;
+          }
+        } else if (props.uploadApi && props.uploadApi.includes('uploadJournel')) {
+          // Special handling for journal uploads
+          try {
+            console.log('Using Journal upload format');
+            uploading.value = true;
+            
+            // For Journal, send a direct POST with JSON data in body
+            const response = await axios.post(props.uploadApi, {
+              email: props.extraData.email || '',
+              company: props.extraData.company || '',
+              data: json,
+              uploadedFileName: selectedFile.value.name
+            });
+            
+            console.log('Journal upload response:', response.data);
+            
+            // Handle success for journal
+            emitUploadSuccess({ 
+              file: selectedFile.value, 
+              response: response.data
+            });
+            
+            closeDialog();
+          } catch (err) {
+            console.error('Error uploading journal:', err);
+            error.value = err.response?.data?.error || "Failed to upload journal data.";
+            uploading.value = false;
+          }
+        } else {
+          // For non-ledger, non-journal Excel, proceed with regular upload
+          await submitFile();
+        }
       } catch (err) {
         error.value = "Failed to read Excel file. Make sure it's not corrupted or password protected."
         console.error('Excel parsing error:', err)
@@ -138,7 +250,40 @@ const uploadFile = async () => {
 
     reader.readAsArrayBuffer(selectedFile.value)
   } else {
+    // For non-Excel (PDF), use regular file upload
     await submitFile()
+  }
+}
+
+// Dedicated function for Ledger upload to avoid interference with other uploads
+const uploadLedgerData = async () => {
+  try {
+    if (!parsedJsonData.value) {
+      throw new Error('No data available to upload');
+    }
+    
+    const response = await axios.post(props.uploadApi, {
+      email: props.extraData.email || '',
+      company: props.extraData.company || '',
+      data: parsedJsonData.value,
+      uploadedFileName: selectedFile.value.name,
+      action: "upload"
+    });
+    
+    console.log('Ledger upload response:', response.data);
+    
+    // Handle success
+    emitUploadSuccess({ 
+      file: selectedFile.value, 
+      response: response.data
+    });
+    
+    closeDialog();
+  } catch (err) {
+    console.error('Error uploading ledger:', err);
+    error.value = err.response?.data?.error || "Failed to upload ledger data.";
+  } finally {
+    uploading.value = false;
   }
 }
 
@@ -160,20 +305,18 @@ const submitFile = async () => {
 
     // PDF: create temp table
     if (isPdf) {
-      const resp1 = await fetch('http://3.108.64.167:3001/api/createTempTable', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      try {
+        const createTempTableData = {
           email: props.extraData.email || '',
-          company: props.extraData.company || '',
+          company: props.extraData.company || '', 
           fileName: fileDetails.file.name,
-          bankAccount: props.extraData.bank || '',
+          bankAccount: props.extraData.bank || ''
         }
         
         console.log('Creating temp table with data:', createTempTableData)
         
         // Call the API to create a temp table
-        const tempTableResponse = await fetch('http://localhost:3001/api/createTempTable', {
+        const tempTableResponse = await fetch('https://api.tallyfy.in/api/createTempTable', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -227,27 +370,43 @@ const submitFile = async () => {
     }
     
     // Use different formData preparation based on file type
-    const formData = new FormData()
-    if (isPdf) {
-      formData.append('email', props.extraData.email || '')
-      formData.append('company', props.extraData.company || '')
-      formData.append('uploaded_file', props.extraData.uploaded_file || fileDetails.file.name)
-      formData.append('user_group', props.extraData.user_group || 'gold')
-      formData.append('file', fileDetails.file)
-      formData.append('temp_table', tempTableName)
-      if (props.extraData.bank) formData.append('bank_name', props.extraData.bank)
-      if (props.extraData.user_id) formData.append('user_id', props.extraData.user_id)
-      const fileId = props.extraData.file_id || tempTableName
-      formData.append('file_id', fileId)
-    } else {
-      formData.append('file', selectedFile.value)
-      
-      // Add any extra data from props
-      Object.entries(props.extraData).forEach(([key, value]) => {
-        formData.append(key, value)
-      })
-    }
+    const formData = new FormData();
+    const isJson = parsedJsonData.value && Array.isArray(parsedJsonData.value) && parsedJsonData.value.length > 0;
     
+    if (isPdf) {
+      formData.append('email', props.extraData.email || '');
+      formData.append('company', props.extraData.company || '');
+      formData.append('uploaded_file', props.extraData.uploaded_file || fileDetails.file.name);
+      formData.append('user_group', props.extraData.user_group || 'gold');
+      formData.append('file', fileDetails.file);
+      formData.append('temp_table', tempTableName);
+      if (props.extraData.bank) formData.append('bank_name', props.extraData.bank);
+      if (props.extraData.user_id) formData.append('user_id', props.extraData.user_id);
+      const fileId = props.extraData.file_id || tempTableName;
+      formData.append('file_id', fileId);
+    } else if (isJson && !isLedgerUpload.value) {
+      // For non-ledger JSON data (journal, etc.)
+      formData.append('file', selectedFile.value);
+      
+      // Attach the JSON data if needed
+      if (props.extraData.includeJsonData) {
+        formData.append('data', JSON.stringify(parsedJsonData.value));
+      }
+      
+      // Attach extra metadata
+      Object.entries(props.extraData).forEach(([key, value]) => {
+        formData.append(key, value);
+      });
+    } else {
+      // fallback for plain file uploads (e.g., banking CSV, ZIP)
+      formData.append('file', selectedFile.value);
+
+      // Attach extra metadata
+      Object.entries(props.extraData).forEach(([key, value]) => {
+        formData.append(key, value);
+      });
+    }
+
     // Log the form data for uploads
     console.log('FormData prepared with fields:', 
       Object.fromEntries(
@@ -263,6 +422,12 @@ const submitFile = async () => {
       : props.uploadApi
     
     console.log(`Uploading ${isPdf ? 'PDF' : 'Excel'} file to: ${apiEndpoint}`)
+    
+    // Skip the rest for Ledger uploads since they are handled separately
+    // Journal uploads should have already been handled in uploadFile, not here
+    if ((isLedgerUpload.value || props.uploadApi?.includes('uploadJournel')) && !isPdf) {
+      return;
+    }
     
     // For PDF specifically, add debugging info
     if (isPdf) {
@@ -372,6 +537,7 @@ const submitFile = async () => {
 const closeDialog = () => {
   selectedFile.value = null
   error.value = ''
+  parsedJsonData.value = null
   emit('update:show', false)
 }
 </script>
@@ -593,7 +759,7 @@ const closeDialog = () => {
         <VBtn
           color="primary"
           :loading="uploading"
-          :disabled="!selectedFile || (isBankRequired && !isBankSelected)"
+          :disabled="isUploadButtonDisabled"
           @click="uploadFile"
         >
           Upload

@@ -1,6 +1,6 @@
 <script setup>
 import axios from 'axios'
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import AddLedgerDialog from '~/components/AddLedgerDialog.vue'
 import ExcelView from '~/components/ExcelView.vue'
 
@@ -27,16 +27,17 @@ const rowCounts = ref({
 // Table settings with defaults matching the requirements
 const settings = ref({
   density: 'compact',
-  height: 500,
+  height: 'calc(100vh - 250px)', // Dynamically set height based on viewport height
   fixedHeader: true,
   bordered: true,
   striped: false,
   hover: true,
   selectable: true,
-  showPagination: true,
+  showPagination: false, // Disable pagination completely
   searchable: true,
-  itemsPerPage: 10,
-  editable: true // Enable editing
+  itemsPerPage: 1000, // Set a very high number to ensure all items are shown
+  editable: true, // Enable editing
+  showRowsPerPage: false // Hide rows per page dropdown
 })
 
 // Add Ledger Dialog
@@ -61,7 +62,7 @@ const fetchData = async (tableName) => {
     console.log('Making API request to get journal data')
     
     // In real implementation, use your API endpoint
-    const res = await axios.get('http://3.108.64.167:3001/api/getJournalData', {
+    const res = await axios.get('https://api.tallyfy.in/api/getJournalData', {
       params: { 
         tempTable: tableName
       }
@@ -148,11 +149,13 @@ const fetchLedgerNames = async () => {
       return
     }
     
-    // First try to get ledger names from the API
-    let useMockData = false;
+    // Clear existing ledger options before fetching new ones
+    ledgerOptions.value = []
     
+    // Always fetch fresh ledger names from the API
     try {
-      const res = await axios.get('http://3.108.64.167:3001/api/getMergedLedgerNames', {
+      message.value = "Fetching ledger options..."
+      const res = await axios.get('https://api.tallyfy.in/api/getMergedLedgerNames', {
         params: { 
           email: userEmail.value, 
           company: selectedCompany.value 
@@ -161,52 +164,31 @@ const fetchLedgerNames = async () => {
       
       console.log('Ledger names received from API:', res.data)
       
-      // Immediately check if any of our particulars match the ledger names
-      const foundInAPI = items.value.filter(item => {
-        if (!item.particulars) return false;
-        return res.data.some(ledger => 
-          ledger.toLowerCase().trim() === item.particulars.toLowerCase().trim()
-        );
-      });
-      
-      console.log(`Found ${foundInAPI.length} matching ledgers out of ${items.value.length} items in API data`);
-      
-      if (foundInAPI.length === 0) {
-        // If no matches found, use mock data
-        console.log('No matches found in API data, using mock data instead');
-        useMockData = true;
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        // Store the ledger options
+        ledgerOptions.value = res.data
+        message.value = `Loaded ${res.data.length} ledger options`
+        
+        // Check which particulars match these ledgers
+        const foundInAPI = items.value.filter(item => {
+          if (!item.particulars) return false;
+          return res.data.some(ledger => 
+            ledger.toLowerCase().trim() === item.particulars.toLowerCase().trim()
+          );
+        });
+        
+        console.log(`Found ${foundInAPI.length} matching ledgers out of ${items.value.length} items in API data`);
       } else {
-        // Otherwise use the API data
-        ledgerOptions.value = res.data;
+        console.warn('No ledger options returned from API')
+        message.value = "No ledger options available"
       }
     } catch (apiErr) {
-      console.error('API error, using mock data instead:', apiErr.message);
-      useMockData = true;
-    }
-    
-    // Use mock data that includes some of our particulars
-    if (useMockData) {
-      // Extract unique particulars from the items
-      const uniqueParticulars = [...new Set(items.value.map(item => item.particulars))];
-      console.log('Unique particulars found in data:', uniqueParticulars);
+      console.error('API error fetching ledger names:', apiErr.message);
+      error.value = `Failed to fetch ledger names: ${apiErr.message}`;
       
-      // Create mock data with half of the particulars to create some invalid ledgers
-      const halfLength = Math.ceil(uniqueParticulars.length / 2);
-      const includedParticulars = uniqueParticulars.slice(0, halfLength);
-      const excludedParticulars = uniqueParticulars.slice(halfLength);
-      
-      // Add some of the particulars to the ledger options
-      ledgerOptions.value = [
-        ...includedParticulars,
-        'a2337 macbook air (laptop)',
-        'aarna ventures private limited',
-        'Office Rent',
-        'Salaries',
-        'Utilities',
-      ];
-      
-      console.log('Using mock ledger options:', ledgerOptions.value);
-      console.log('Particulars that should be invalid:', excludedParticulars);
+      // Use mock data as fallback
+      console.log('Using mock data as fallback')
+      useMockLedgerData()
     }
     
     // Force a check for invalid ledgers after loading
@@ -229,6 +211,29 @@ const fetchLedgerNames = async () => {
     console.error('Error fetching ledger names:', err);
     error.value = 'Failed to load ledger names: ' + (err.response?.data?.error || err.message);
   }
+}
+
+// Function to use mock ledger data as fallback
+const useMockLedgerData = () => {
+  // Extract unique particulars from the items
+  const uniqueParticulars = [...new Set(items.value.map(item => item.particulars))];
+  console.log('Unique particulars found in data:', uniqueParticulars);
+  
+  // Create mock data with half of the particulars to create some invalid ledgers
+  const halfLength = Math.ceil(uniqueParticulars.length / 2);
+  const includedParticulars = uniqueParticulars.slice(0, halfLength);
+  
+  // Add some of the particulars to the ledger options
+  ledgerOptions.value = [
+    ...includedParticulars,
+    'a2337 macbook air (laptop)',
+    'aarna ventures private limited',
+    'Office Rent',
+    'Salaries',
+    'Utilities',
+  ];
+  
+  console.log('Using mock ledger options:', ledgerOptions.value);
 }
 
 // Calculate the row counts (total, saved, sent to tally)
@@ -321,16 +326,65 @@ const handleSave = async () => {
     message.value = "Saving selected rows..."
     error.value = ''
     
-    // In real implementation, this would be an API call
-    // await axios.post('/api/updateJournalRows', {
-    //   tempTable: tempTable.value,
-    //   rows: selectedRows.value
-    // })
+    // Check for necessary user information
+    if (!userEmail.value || !selectedCompany.value) {
+      error.value = "Missing user email or company"
+      return
+    }
+
+    // Get the current tempTable from state or sessionStorage
+    let currentTempTable = tempTable.value || sessionStorage.getItem('tempTable')
+    if (!currentTempTable) {
+      const uploadRes = await axios.get('https://api.tallyfy.in/api/getUserJournelUploads', {
+        params: { 
+          email: userEmail.value, 
+          company: selectedCompany.value 
+        }
+      })
+      
+      if (uploadRes.data && uploadRes.data.length > 0) {
+        currentTempTable = uploadRes.data[0].temp_table
+        tempTable.value = currentTempTable
+        sessionStorage.setItem('tempTable', currentTempTable)
+      } else {
+        error.value = "No temporary table found"
+        return
+      }
+    }
     
-    // For demo, simulate a delay and update rows
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // Save each selected row
+    for (let row of selectedRows.value) {
+      if (!row.id) {
+        console.error(`Row missing id:`, row)
+        continue
+      }
+
+      const payload = {
+        tempTable: currentTempTable,
+        creation_id: row.id,
+        email: userEmail.value,
+        company: selectedCompany.value,
+        updatedRow: {
+          journal_no: row.journal_no,
+          reference_no: row.reference_no,
+          date: row.date,
+          cost_center: row.cost_center,
+          particulars: row.particulars,
+          name_of_item: row.name_of_item,
+          quantity: row.quantity,
+          rate: row.rate,
+          dr_cr: row.dr_cr,
+          amount: row.amount,
+          ledger_narration: row.ledger_narration,
+          narration: row.narration
+        }
+      }
+
+      console.log('Saving row with payload:', payload)
+      await axios.post("https://api.tallyfy.in/api/updateJournalRow", payload)
+    }
     
-    // Update status of selected rows
+    // Update status of selected rows in the UI
     items.value = items.value.map(item => {
       if (selectedRows.value.some(selected => selected.id === item.id)) {
         return { ...item, status: 'saved' }
@@ -347,6 +401,9 @@ const handleSave = async () => {
   } catch (err) {
     console.error("Save error:", err)
     error.value = "Save failed: " + (err.response?.data?.error || err.message)
+    if (err.response?.data?.details) {
+      console.error("Error details:", err.response.data.details)
+    }
   }
 }
 
@@ -425,7 +482,7 @@ const handleDeleteRow = async (rowId) => {
     console.log('Deleting row:', rowId)
     
     // Send delete request to API
-    const response = await axios.post('http://3.108.64.167:3001/api/deleteJournalRow', { 
+    const response = await axios.post('https://api.tallyfy.in/api/deleteJournalRow', { 
       tempTable: tempTable.value,
       rowId: rowId
     })
@@ -503,7 +560,7 @@ const handleItemUpdate = async ({ originalRow, updatedRow, field, value }) => {
     // This is a simulated API call
     try {
       // You would uncomment and use this in production
-      // const response = await axios.post('http://3.108.64.167:3001/api/updateJournalField', {
+      // const response = await axios.post('https://api.tallyfy.in/api/updateJournalField', {
       //   tempTable: tempTable.value,
       //   rowId: originalRow.id,
       //   field: field,
@@ -574,7 +631,7 @@ const loadInitialData = async () => {
     } else {
       // If no table in sessionStorage, get the latest from API
       console.log('No table in session storage, fetching latest upload')
-      const uploadRes = await axios.get('http://3.108.64.167:3001/api/getUserJournelUploads', {
+      const uploadRes = await axios.get(' https://api.tallyfy.in/api/getUserJournelUploads', {
         params: { 
           email: userEmail.value, 
           company: selectedCompany.value 
@@ -607,229 +664,354 @@ const loadInitialData = async () => {
 onMounted(() => {
   console.log('JournelExcelView component mounted')
   loadInitialData()
+  
+  // Add a timeout to allow the table to render first
+  setTimeout(() => {
+    colorInvalidLedgers()
+  }, 2000)
 })
+
+// Function to manually color invalid ledgers after rendering
+const colorInvalidLedgers = () => {
+  console.log('Manually coloring invalid ledgers')
+  
+  try {
+    // Look for cells that are in the particulars column only
+    const headerCells = document.querySelectorAll('.excel-view__header th');
+    let particularColumnIndex = -1;
+    
+    // Find which column number has the particulars header
+    headerCells.forEach((cell, index) => {
+      if (cell.textContent.toLowerCase().includes('particulars')) {
+        particularColumnIndex = index;
+        console.log('Found particulars column at index:', particularColumnIndex);
+      }
+    });
+    
+    if (particularColumnIndex === -1) {
+      console.error('Could not find particulars column header');
+      return;
+    }
+    
+    // Now get rows in the table body
+    const rows = document.querySelectorAll('.excel-view__table tbody tr');
+    let count = 0;
+    
+    // For each row, get the cell at the particulars index
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length > particularColumnIndex) {
+        const particularCell = cells[particularColumnIndex];
+        const text = particularCell.textContent?.trim();
+        
+        // Check if this particular is an invalid ledger
+        if (text && isInvalidLedger(text) && !text.includes('*')) {
+          // Clear the cell's content
+          particularCell.innerHTML = '';
+          
+          // Create a span for the ledger name
+          const textSpan = document.createElement('span');
+          textSpan.textContent = text + ' *';
+          textSpan.style.color = 'red';
+          particularCell.appendChild(textSpan);
+          
+          // Create the error icon
+          const iconSpan = document.createElement('span');
+          iconSpan.innerHTML = '<i class="bx bx-error-circle" style="margin-left: 5px; color: red;"></i>';
+          iconSpan.title = 'Unresolved error. Please add ledger.';
+          iconSpan.style.cursor = 'pointer';
+          
+          // Add tooltip functionality
+          iconSpan.addEventListener('mouseenter', (e) => {
+            const tooltip = document.createElement('div');
+            tooltip.className = 'error-tooltip';
+            tooltip.textContent = 'Unresolved error. Please add ledger.';
+            tooltip.style.position = 'absolute';
+            tooltip.style.backgroundColor = 'rgba(0,0,0,0.8)';
+            tooltip.style.color = 'white';
+            tooltip.style.padding = '5px 10px';
+            tooltip.style.borderRadius = '4px';
+            tooltip.style.fontSize = '12px';
+            tooltip.style.zIndex = '9999';
+            tooltip.style.top = (e.clientY - 30) + 'px';
+            tooltip.style.left = e.clientX + 'px';
+            document.body.appendChild(tooltip);
+            
+            iconSpan._tooltip = tooltip;
+          });
+          
+          iconSpan.addEventListener('mouseleave', () => {
+            if (iconSpan._tooltip) {
+              document.body.removeChild(iconSpan._tooltip);
+              delete iconSpan._tooltip;
+            }
+          });
+          
+          particularCell.appendChild(iconSpan);
+          count++;
+        }
+      }
+    });
+    
+    console.log(`Added error icons to ${count} invalid ledgers in particulars column`);
+  } catch (err) {
+    console.error('Error while marking ledgers:', err);
+  }
+}
+
+// Watch for changes to items and reapply coloring
+watch(items, () => {
+  setTimeout(() => {
+    colorInvalidLedgers()
+  }, 1000)
+}, { deep: true })
 </script>
 
 <template>
-  <VCard class="mb-5">
-    <VCardTitle class="d-flex justify-space-between align-center px-5 py-3">
-      <div class="d-flex align-center gap-3">
-        <VBtn
-          icon
-          variant="text"
-          color="secondary"
-          to="/journal"
-        >
-          <VIcon icon="bx-chevron-left" size="28" />
-        </VBtn>
-        <div>Journal Excel Data</div>
-      </div>
-      <VTextField
-        v-model="selectedCompany"
-        label="Company Name"
-        readonly
-        variant="outlined"
-        density="compact"
-        class="max-width-300"
-      />
-    </VCardTitle>
-    
-    <!-- Error and success messages -->
-    <VCardText v-if="error || message" class="pt-0">
-      <VAlert
-        v-if="error"
-        type="error"
-        closable
-        variant="tonal"
-        @click:close="error = ''"
-      >
-        {{ error }}
-      </VAlert>
-      <VAlert
-        v-if="message"
-        type="success"
-        closable
-        variant="tonal"
-        @click:close="message = ''"
-      >
-        {{ message }}
-      </VAlert>
-    </VCardText>
-    
-    <!-- Action buttons and counters -->
-    <VCardText class="pa-2">
-      <div class="d-flex justify-space-between align-center flex-wrap gap-4">
-        <div class="d-flex gap-3">
+  <div class="journal-excel-view-container">
+    <VCard class="mb-5">
+      <VCardTitle class="d-flex justify-space-between align-center px-5 py-3">
+        <div class="d-flex align-center gap-3">
           <VBtn
-            color="success"
-            variant="elevated"
-            prepend-icon="bx-save"
-            :disabled="selectedRows.length === 0"
-            @click="handleSave"
+            icon
+            variant="text"
+            color="secondary"
+            to="/journal"
           >
-            Save
+            <VIcon icon="bx-chevron-left" size="28" />
           </VBtn>
-          <VBtn
-            color="warning"
-            variant="elevated"
-            prepend-icon="bx-share"
-            :disabled="selectedRows.length === 0"
-            @click="handleSendToTally"
-          >
-            Send To Tally
-          </VBtn>
-          <VBtn
-            color="primary"
-            variant="elevated"
-            prepend-icon="bx-plus"
-            @click="handleAddLedger"
-          >
-            Add Ledger
-          </VBtn>
+          <div>Journal Excel Data</div>
         </div>
-        
-        <div class="d-flex gap-3">
-          <VCard
-            color="primary"
-            variant="tonal"
-            class="counter-card"
-          >
-            <div class="counter-content">
-              <div class="counter-title">Total Rows</div>
-              <div class="counter-value">{{ rowCounts.total }}</div>
-            </div>
-          </VCard>
-          
-          <VCard
-            color="success"
-            variant="tonal"
-            class="counter-card"
-          >
-            <div class="counter-content">
-              <div class="counter-title">Saved</div>
-              <div class="counter-value">{{ rowCounts.saved }}</div>
-            </div>
-          </VCard>
-          
-          <VCard
-            color="warning"
-            variant="tonal"
-            class="counter-card"
-          >
-            <div class="counter-content">
-              <div class="counter-title">Sent to Tally</div>
-              <div class="counter-value">{{ rowCounts.sentToTally }}</div>
-            </div>
-          </VCard>
-        </div>
-      </div>
-    </VCardText>
-  </VCard>
-  
-  <!-- Excel View Component -->
-  <VCard>
-    <VCardText>
-      <VTooltip location="top">
-        <template v-slot:activator="{ props }">
-          <div v-bind="props" class="mb-2 text-caption d-flex align-center">
-            <VIcon icon="bx-info-circle" size="small" color="info" class="me-1" />
-            Double-click on any cell to edit its value
-          </div>
-        </template>
-        <span>You can edit most fields by double-clicking on them</span>
-      </VTooltip>
+        <VTextField
+          v-model="selectedCompany"
+          label="Company Name"
+          readonly
+          variant="outlined"
+          density="compact"
+          class="max-width-300"
+        />
+      </VCardTitle>
       
-      <ExcelView
-        :headers="headers"
-        :items="items"
-        :density="settings.density"
-        :height="settings.height"
-        :fixed-header="settings.fixedHeader"
-        :bordered="settings.bordered"
-        :striped="settings.striped"
-        :hover="settings.hover"
-        :selectable="settings.selectable"
-        :loading="loading"
-        :show-pagination="settings.showPagination"
-        :searchable="settings.searchable"
-        :items-per-page="settings.itemsPerPage"
-        :editable="settings.editable"
-        v-model:selected="selectedRows"
-        @row-click="handleRowClick"
-        @cell-click="handleCellClick"
-        @update:item="handleItemUpdate"
-      >
-        <!-- Empty title slot to remove the title -->
-        <template #title></template>
-        
-        <!-- Custom actions slot to hide export buttons -->
-        <template #actions>
-          <!-- Actions slot intentionally left empty to remove the export buttons -->
-        </template>
-        
-        <!-- Custom status cell rendering -->
-        <template #item.status="{ value }">
-          <VChip
-            size="small"
-            :color="value === 'saved' ? 'success' : value === 'send to tally' ? 'warning' : 'info'"
-            variant="flat"
-          >
-            {{ value }}
-          </VChip>
-        </template>
-        
-        <!-- Custom particulars cell to validate ledgers -->
-        <template #item.particulars="{ value, item }">
-          <div 
-            class="ledger-cell"
-            :class="{ 'invalid-ledger-cell': isInvalidLedger(value) }"
-            :style="isInvalidLedger(value) ? 
-              'border: 4px solid #FF0000 !important; background-color: rgba(255, 0, 0, 0.1); color: #FF0000; font-weight: bold; padding: 4px 8px; border-radius: 4px; box-shadow: 0 0 5px #FF0000;' : ''"
-          >
-            {{ value }}
-            <VIcon
-              v-if="isInvalidLedger(value)"
-              icon="bx-error-circle"
-              color="error"
-              size="20"
-              class="ms-1"
-            >
-              <VTooltip activator="parent" location="top">
-                <div style=" font-weight: bold;max-inline-size: 300px; text-align: center;">
-                  Ledger "{{ value }}" is not added in the system.<br>
-                  Please add this ledger before proceeding.
-                </div>
-              </VTooltip>
-            </VIcon>
-          </div>
-        </template>
-        
-        <!-- Custom actions for each row -->
-        <template #item-actions="{ item }">
-          <div class="d-flex gap-1">
+      <!-- Error and success messages -->
+      <VCardText v-if="error || message" class="pt-0">
+        <VAlert
+          v-if="error"
+          type="error"
+          closable
+          variant="tonal"
+          @click:close="error = ''"
+        >
+          {{ error }}
+        </VAlert>
+        <VAlert
+          v-if="message"
+          type="success"
+          closable
+          variant="tonal"
+          @click:close="message = ''"
+        >
+          {{ message }}
+        </VAlert>
+      </VCardText>
+      
+      <!-- Action buttons and counters -->
+      <VCardText class="pa-2">
+        <div class="d-flex justify-space-between align-center flex-wrap gap-4">
+          <div class="d-flex gap-3">
             <VBtn
-              size="x-small"
-              icon
-              color="error"
-              variant="text"
-              @click.stop="handleDeleteRow(item.id)"
+              color="success"
+              variant="elevated"
+              prepend-icon="bx-save"
+              :disabled="selectedRows.length === 0"
+              @click="handleSave"
             >
-              <VIcon icon="bx-trash" />
+              Save
+            </VBtn>
+            <VBtn
+              color="warning"
+              variant="elevated"
+              prepend-icon="bx-share"
+              :disabled="selectedRows.length === 0"
+              @click="handleSendToTally"
+            >
+              Send To Tally
+            </VBtn>
+            <VBtn
+              color="primary"
+              variant="elevated"
+              prepend-icon="bx-plus"
+              @click="handleAddLedger"
+            >
+              Add Ledger
             </VBtn>
           </div>
-        </template>
-      </ExcelView>
-    </VCardText>
-  </VCard>
-  
-  <!-- Add Ledger Dialog -->
-  <AddLedgerDialog
-    v-model:show="showAddLedgerDialog"
-    @ledger-added="handleLedgerAdded"
-  />
+          
+          <div class="d-flex gap-3">
+            <VCard
+              color="primary"
+              variant="tonal"
+              class="counter-card"
+            >
+              <div class="counter-content">
+                <div class="counter-title">Total Rows</div>
+                <div class="counter-value">{{ rowCounts.total }}</div>
+              </div>
+            </VCard>
+            
+            <VCard
+              color="success"
+              variant="tonal"
+              class="counter-card"
+            >
+              <div class="counter-content">
+                <div class="counter-title">Saved</div>
+                <div class="counter-value">{{ rowCounts.saved }}</div>
+              </div>
+            </VCard>
+            
+            <VCard
+              color="warning"
+              variant="tonal"
+              class="counter-card"
+            >
+              <div class="counter-content">
+                <div class="counter-title">Sent to Tally</div>
+                <div class="counter-value">{{ rowCounts.sentToTally }}</div>
+              </div>
+            </VCard>
+          </div>
+        </div>
+      </VCardText>
+    </VCard>
+    
+    <!-- Excel View Component -->
+    <VCard class="excel-view-card">
+      <VCardText>
+        <VTooltip location="top">
+          <template v-slot:activator="{ props }">
+            <div v-bind="props" class="mb-2 text-caption d-flex align-center">
+              <VIcon icon="bx-info-circle" size="small" color="info" class="me-1" />
+              Double-click on any cell to edit its value
+            </div>
+          </template>
+          <span>You can edit most fields by double-clicking on them</span>
+        </VTooltip>
+        
+        <ExcelView
+          :headers="headers"
+          :items="items"
+          :density="settings.density"
+          :height="settings.height"
+          :fixed-header="settings.fixedHeader"
+          :bordered="settings.bordered"
+          :striped="settings.striped"
+          :hover="settings.hover"
+          :selectable="settings.selectable"
+          :loading="loading"
+          :show-pagination="settings.showPagination"
+          :searchable="settings.searchable"
+          :items-per-page="settings.itemsPerPage"
+          :editable="settings.editable"
+          :show-rows-per-page="settings.showRowsPerPage"
+          :invalid-ledgers="items.filter(item => isInvalidLedger(item.particulars)).map(item => item.particulars)"
+          :ledger-options="ledgerOptions"
+          v-model:selected="selectedRows"
+          @row-click="handleRowClick"
+          @cell-click="handleCellClick"
+          @update:item="handleItemUpdate"
+        >
+          <!-- Empty title slot to remove the title -->
+          <template #title></template>
+          
+          <!-- Custom actions slot to hide export buttons -->
+          <template #actions>
+            <!-- Actions slot intentionally left empty to remove the export buttons -->
+          </template>
+          
+          <!-- Custom status cell rendering -->
+          <template #item.status="{ value }">
+            <VChip
+              size="small"
+              :color="value === 'saved' ? 'success' : value === 'send to tally' ? 'warning' : 'info'"
+              variant="flat"
+            >
+              {{ value }}
+            </VChip>
+          </template>
+          
+          <!-- Direct template for particulars -->
+          <template #item.particulars="{ value, item }">
+            <div style="color: red;" v-if="isInvalidLedger(value)">
+              {{ value }}
+            </div>
+            <div v-else>
+              {{ value }}
+            </div>
+          </template>
+          
+          <!-- Custom actions for each row -->
+          <template #item-actions="{ item }">
+            <div class="d-flex gap-1">
+              <VBtn
+                size="x-small"
+                icon
+                color="error"
+                variant="text"
+                @click.stop="handleDeleteRow(item.id)"
+              >
+                <VIcon icon="bx-trash" />
+              </VBtn>
+            </div>
+          </template>
+        </ExcelView>
+      </VCardText>
+    </VCard>
+    
+    <!-- Add Ledger Dialog -->
+    <AddLedgerDialog
+      v-model:show="showAddLedgerDialog"
+      @ledger-added="handleLedgerAdded"
+    />
+  </div>
 </template>
 
 <style lang="scss" scoped>
+.excel-view-card {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  margin-block-end: 16px;
+
+  .v-card-text {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    padding-block-end: 8px;
+
+    .excel-view {
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+
+      &__table-wrapper {
+        flex-grow: 1;
+      }
+    }
+  }
+}
+
+.journal-excel-view-container {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  min-block-size: calc(100vh - 64px); /* Adjust based on your header height */
+
+  /* Make sure the excel view card takes up remaining space */
+  > .excel-view-card {
+    flex: 1;
+  }
+}
+
 .v-card-title {
   border-block-end: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
@@ -860,26 +1042,8 @@ onMounted(() => {
   max-inline-size: 300px;
 }
 
-/* Add styles for invalid ledger cells - increased visibility */
-.ledger-cell {
-  display: flex;
-  align-items: center;
-  border-radius: 4px;
-  min-block-size: 32px;
-  padding-block: 4px;
-  padding-inline: 4px;
-}
-
-.invalid-ledger-cell {
-  /* !important flags to ensure these styles are applied */
-  border: 4px solid #f00 !important;
-  border-radius: 4px !important;
-  background-color: rgba(255, 0, 0, 10%) !important;
-  box-shadow: 0 0 5px #f00 !important;
-  color: #f00 !important;
-  font-weight: bold !important;
-  padding-block: 4px !important;
-  padding-inline: 8px !important;
+.invalid-ledger {
+  color: red !important;
 }
 
 /* Styles for editable fields */

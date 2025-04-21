@@ -1,5 +1,5 @@
 <script setup>
-import { computed, directive, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   // Data properties
@@ -63,6 +63,10 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  showRowsPerPage: {
+    type: Boolean,
+    default: true,
+  },
   // Sorting
   sortable: {
     type: Boolean,
@@ -81,6 +85,16 @@ const props = defineProps({
   editable: {
     type: Boolean,
     default: false
+  },
+  // Ledger validation functionality
+  invalidLedgers: {
+    type: Array,
+    default: () => []
+  },
+  // Ledger options for autocomplete
+  ledgerOptions: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -363,14 +377,26 @@ const editValue = ref('')
 // Add the formatDate function after the other utility functions
 const formatDate = (value) => {
   if (!value) return '';
+  
+  let dateObj;
+  
   if (typeof value === 'number') {
-    const jsDate = new Date((value - 25569) * 86400 * 1000);
-    return jsDate.toISOString().split('T')[0];
+    // Handle Excel numeric dates (days since 1900)
+    dateObj = new Date((value - 25569) * 86400 * 1000);
+  } else {
+    // Handle string date formats
+    dateObj = new Date(value);
   }
-  const parsed = new Date(value);
-  if (!isNaN(parsed.getTime())) {
-    return parsed.toISOString().split('T')[0];
+  
+  if (!isNaN(dateObj.getTime())) {
+    // Format as dd/mm/yyyy using en-GB locale
+    return dateObj.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
   }
+  
   return '';
 };
 
@@ -380,22 +406,48 @@ const startEditing = (row, header) => {
   if (['id', 'status'].includes(header.key)) return // Don't allow editing of ID or status
 
   editingCell.value = { rowId: row.id, key: header.key }
-  // Format date value if it's a date field
-  editValue.value = header.key === 'date' ? formatDate(row[header.key]) : row[header.key]
   
-  // Focus and select text in the next tick after the input is rendered
-  setTimeout(() => {
-    const inputElement = document.querySelector('.native-edit-input')
-    if (inputElement) {
-      inputElement.focus()
-      if (header.key !== 'date') {
-        inputElement.select()
+  // For date fields, we need to convert to ISO format (YYYY-MM-DD) for the date input
+  if (header.key === 'date') {
+    const dateValue = row[header.key];
+    if (dateValue) {
+      let dateObj;
+      
+      if (typeof dateValue === 'number') {
+        // Handle Excel numeric dates
+        dateObj = new Date((dateValue - 25569) * 86400 * 1000);
+      } else {
+        // Try to parse the date string - could be in DD/MM/YYYY format
+        const parts = dateValue.split('/');
+        if (parts.length === 3) {
+          // If it's in DD/MM/YYYY format, convert to MM/DD/YYYY for parsing
+          dateObj = new Date(`${parts[1]}/${parts[0]}/${parts[2]}`);
+        } else {
+          // Otherwise try standard date parsing
+          dateObj = new Date(dateValue);
+        }
       }
+      
+      if (!isNaN(dateObj.getTime())) {
+        // Convert to YYYY-MM-DD format
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        editValue.value = `${year}-${month}-${day}`;
+      } else {
+        // Fallback if we can't parse the date
+        editValue.value = '';
+      }
+    } else {
+      editValue.value = '';
     }
-  }, 10)
+  } else {
+    // For non-date fields, use the value as is
+    editValue.value = row[header.key];
+  }
 }
 
-const saveEdit = (event) => {
+const saveEdit = () => {
   if (!editingCell.value) return
 
   const { rowId, key } = editingCell.value
@@ -408,22 +460,9 @@ const saveEdit = (event) => {
   // Emit the updated item
   emit('update:item', { originalRow: row, updatedRow, field: key, value: editValue.value })
   
-  // Store the current cell position for navigation
-  const currentIndex = props.headers.findIndex(h => h.key === key)
-  const nextHeader = props.headers[currentIndex + 1]
-  const navigateToNext = event && event.key === 'Enter' && nextHeader
-  
   // Reset editing state
   editingCell.value = null
   editValue.value = ''
-  
-  // If Enter was pressed, navigate to the next cell in the row
-  if (navigateToNext) {
-    setTimeout(() => {
-      editingCell.value = { rowId, key: nextHeader.key }
-      editValue.value = row[nextHeader.key]
-    }, 10)
-  }
 }
 
 const cancelEdit = () => {
@@ -431,98 +470,13 @@ const cancelEdit = () => {
   editValue.value = ''
 }
 
-// Add a custom directive to select all text on focus
-const vSelectAll = directive('select-all', {
-  mounted: (el) => {
-    const inputEl = el.querySelector('input')
-    if (inputEl) {
-      inputEl.addEventListener('focus', () => {
-        setTimeout(() => {
-          inputEl.select()
-        }, 10)
-      })
-    }
-  }
-})
-
-// Add event handler for tab key
-const handleTabKey = (event) => {
-  if (!editingCell.value) return
-
-  // Prevent default tab behavior
-  event.preventDefault()
-
-  const { rowId, key } = editingCell.value
-  const row = props.items.find(item => item.id === rowId)
-  if (!row) return
-
-  // Save current edit
-  const updatedRow = { ...row, [key]: editValue.value }
-  emit('update:item', { originalRow: row, updatedRow, field: key, value: editValue.value })
-
-  // Find current position
-  const headers = props.headers.filter(h => !['id', 'status'].includes(h.key))
-  const currentIndex = headers.findIndex(h => h.key === key)
-  
-  // Calculate next position (with shift+tab going backwards)
-  let nextIndex = event.shiftKey ? currentIndex - 1 : currentIndex + 1
-  
-  // Handle row boundaries
-  if (nextIndex < 0 || nextIndex >= headers.length) {
-    // Find current row index
-    const rowIndex = paginatedItems.value.findIndex(item => item.id === rowId)
-    
-    if (event.shiftKey && nextIndex < 0) {
-      // Move to previous row, last cell
-      const prevRowIndex = rowIndex - 1
-      if (prevRowIndex >= 0) {
-        const prevRow = paginatedItems.value[prevRowIndex]
-        nextIndex = headers.length - 1
-        
-        // Reset current edit
-        editingCell.value = null
-        editValue.value = ''
-        
-        // Start editing next cell
-        setTimeout(() => {
-          editingCell.value = { rowId: prevRow.id, key: headers[nextIndex].key }
-          editValue.value = prevRow[headers[nextIndex].key] || ''
-        }, 10)
-      }
-    } else if (!event.shiftKey && nextIndex >= headers.length) {
-      // Move to next row, first cell
-      const nextRowIndex = rowIndex + 1
-      if (nextRowIndex < paginatedItems.value.length) {
-        const nextRow = paginatedItems.value[nextRowIndex]
-        nextIndex = 0
-        
-        // Reset current edit
-        editingCell.value = null
-        editValue.value = ''
-        
-        // Start editing next cell
-        setTimeout(() => {
-          editingCell.value = { rowId: nextRow.id, key: headers[nextIndex].key }
-          editValue.value = nextRow[headers[nextIndex].key] || ''
-        }, 10)
-      }
-    }
-    return
-  }
-  
-  // Move to next cell in same row
-  const nextHeader = headers[nextIndex]
-  
-  // Reset current edit
-  editingCell.value = null
-  editValue.value = ''
-  
-  // Start editing next cell
-  setTimeout(() => {
-    editingCell.value = { rowId, key: nextHeader.key }
-    editValue.value = row[nextHeader.key] || ''
-  }, 10)
+// Function to check if a particular is invalid
+const isInvalidParticular = (particular) => {
+  return props.invalidLedgers.includes(particular);
 }
+
+// Add after the editValue ref
+const tooltipVisible = ref(false)
 
 onMounted(() => {
   computedItemsPerPage.value = props.itemsPerPage
@@ -763,33 +717,65 @@ onMounted(() => {
                 >
                   <!-- Show input when editing this cell -->
                   <div v-if="editingCell && editingCell.rowId === item.id && editingCell.key === header.key">
-                    <input
-                      v-if="header.key !== 'date'"
-                      ref="editInput"
+                    <VTextField
+                      v-if="header.key !== 'date' && header.key !== 'particulars'"
                       v-model="editValue"
-                      class="native-edit-input"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
                       autofocus
                       @keyup.enter="saveEdit"
                       @keyup.esc="cancelEdit"
-                      @keydown.tab="handleTabKey"
                       @blur="saveEdit"
                     />
-                    <input
-                      v-else
-                      ref="editInput"
+                    <VTextField
+                      v-else-if="header.key === 'date'"
                       v-model="editValue"
                       type="date"
-                      class="native-edit-input"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
                       autofocus
                       @keyup.enter="saveEdit"
                       @keyup.esc="cancelEdit"
-                      @keydown.tab="handleTabKey"
                       @blur="saveEdit"
+                    />
+                    <VAutocomplete
+                      v-else-if="header.key === 'particulars'"
+                      v-model="editValue"
+                      :items="props.ledgerOptions"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                      autofocus
+                      autocomplete="off"
+                      clearable
+                      @update:model-value="saveEdit"
+                      @keyup.enter="saveEdit"
+                      @keyup.esc="cancelEdit"
                     />
                   </div>
                   <!-- Show formatted date or regular value -->
                   <template v-else>
                     <span v-if="header.key === 'date'">{{ formatDate(item[header.key]) }}</span>
+                    <span v-else-if="header.key === 'particulars'" 
+                          :class="{ 'text-error': isInvalidParticular(item[header.key]) }"
+                          class="d-flex align-center"
+                    >
+                      {{ item[header.key] }}
+                      <VTooltip v-if="isInvalidParticular(item[header.key])" location="top">
+                        <template v-slot:activator="{ props: tooltipProps }">
+                          <VIcon
+                            v-bind="tooltipProps"
+                            color="error"
+                            size="small"
+                            icon="bx-error-circle"
+                            class="ms-1"
+                          />
+                        </template>
+                        <span>Fix Ledger. Add Ledger.</span>
+                      </VTooltip>
+                    </span>
                     <span v-else>{{ item[header.key] }}</span>
                   </template>
                 </td>
@@ -827,7 +813,7 @@ onMounted(() => {
       v-if="showPagination && !loading && totalPages > 1" 
       class="excel-view__pagination d-flex align-center justify-space-between mt-4"
     >
-      <div class="excel-view__items-per-page">
+      <div v-if="props.showRowsPerPage" class="excel-view__items-per-page">
         <VSelect
           v-model="computedItemsPerPage"
           density="compact"
@@ -859,131 +845,6 @@ onMounted(() => {
     </div>
   </div>
 </template>
-
-<style lang="scss">
-/* Global styles for editable cells */
-.excel-view {
-  .v-field {
-    border-radius: 0;
-    background: transparent !important;
-    box-shadow: none !important;
-
-    &__input {
-      padding: 0 !important;
-      color: inherit !important;
-      font-family: inherit !important;
-      font-size: inherit !important;
-      min-block-size: unset !important;
-    }
-
-    &__outline,
-    &__overlay {
-      display: none !important;
-      border: none !important;
-      background: transparent !important;
-      opacity: 0 !important;
-    }
-
-    &--focused {
-      background: transparent !important;
-      box-shadow: none !important;
-
-      .v-field__outline {
-        display: none !important;
-        border: none !important;
-        background: transparent !important;
-        opacity: 0 !important;
-      }
-    }
-  }
-
-  .v-text-field {
-    position: absolute;
-    padding: 0 !important;
-    margin: 0 !important;
-    background: transparent !important;
-    inset: -1px;
-
-    .v-input__control,
-    .v-input__slot,
-    .v-field-container,
-    .v-field {
-      border: none !important;
-      background: transparent !important;
-      box-shadow: none !important;
-      min-block-size: unset !important;
-    }
-
-    input {
-      padding: inherit !important;
-      border: none !important;
-      margin: 0 !important;
-      background: transparent !important;
-      block-size: 100% !important;
-      box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), 0.3) !important;
-      caret-color: rgba(var(--v-theme-primary), 1) !important;
-      min-block-size: unset !important;
-      outline: none !important;
-    }
-
-    .v-messages,
-    .v-counter {
-      display: none !important;
-    }
-  }
-
-  .excel-view__td--align-center .v-field__input {
-    text-align: center !important;
-  }
-
-  .excel-view__td--align-end .v-field__input {
-    text-align: end !important;
-  }
-
-  /* Add a cursor style to show cells are editable */
-  .excel-view__td {
-    position: relative;
-    cursor: cell !important;
-
-    &:hover {
-      background-color: rgba(var(--v-theme-primary), 0.04) !important;
-    }
-  }
-
-  /* Style for the native input */
-  .native-edit-input {
-    position: absolute;
-    z-index: 1;
-    padding: inherit;
-    border: none;
-    margin: 0;
-    background-color: transparent;
-    block-size: 100%;
-    box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), 0.3);
-    color: inherit;
-    font-family: inherit;
-    font-size: inherit;
-    inline-size: 100%;
-    inset: 0;
-    outline: none;
-    text-align: inherit;
-
-    &:focus {
-      background-color: transparent;
-      outline: none;
-    }
-  }
-
-  /* Align text inputs properly */
-  .excel-view__td--align-center .native-edit-input {
-    text-align: center;
-  }
-
-  .excel-view__td--align-end .native-edit-input {
-    text-align: end;
-  }
-}
-</style>
 
 <style lang="scss" scoped>
 .excel-view {
@@ -1159,7 +1020,6 @@ onMounted(() => {
   }
 
   &__td {
-    position: relative;
     background-color: inherit;
     text-align: start;
 
@@ -1235,6 +1095,11 @@ onMounted(() => {
     .v-selection-control__input {
       transform: scale(0.85);
     }
+  }
+
+  // Add styling for invalid particular text
+  .text-error {
+    color: rgb(var(--v-theme-error)) !important;
   }
 }
 
